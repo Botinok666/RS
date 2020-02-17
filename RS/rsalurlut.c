@@ -1,5 +1,6 @@
 #include "rsalurlut.h"
 //#include <stdio.h>
+//#define ERROR_CHECKING
 
 // Fast multiply using table lookup
 uint8_t inline GFMulFast(uint8_t a, uint8_t b, uint16_t* lutLog, uint16_t* lutExp)
@@ -74,8 +75,7 @@ int __cdecl Encode(uint8_t n, uint8_t k, uint16_t* lut, uint16_t* coefs, uint8_t
     int length = n - k + 1;
     if (length < 3 || n < 4)
         return -1;
-    uint16_t* lutExp = lut + 256, * lutLog = lut;
-    //uint8_t* btemp = (uint8_t*)(coefs + length);
+    uint16_t* lutExp = lut + 256, *lutLog = lut;
     memcpy_s(out, k, in, k);
     memset(out + k, 0, n - k);
     //Remainder calculation: long division
@@ -88,19 +88,18 @@ int __cdecl Encode(uint8_t n, uint8_t k, uint16_t* lut, uint16_t* coefs, uint8_t
     memcpy_s(out, k, in, k);
     return 0;
 }
-int __cdecl Decode(uint8_t n, uint8_t k, uint16_t* lut, uint8_t* scratch, uint8_t* in, uint8_t* out)
+int __cdecl Decode(uint8_t n, uint8_t k, uint16_t* lut, uint16_t* scratch, uint8_t* in, uint8_t* out)
 {
-    //Required size of scratch buffer is 6n-5k+4
-    int scount = n - k, lcount = scount + 1;
+    //Required size of scratch buffer is 5*scount
+    uint8_t scount = n - k;
     if (scount < 2 || n < 4)
         return -1;
     uint16_t* lutExp = lut + 256, * lutLog = lut;
+    uint8_t t = scount >> 1; //Error capacity
 
-    //uint8_t* btemp = scratch;
-    uint8_t* lambda = scratch; // btemp + n;
-    uint8_t* omega = lambda + lcount;
-    uint8_t* syn = omega + scount;
-    memcpy_s(out, k, in, k);
+    uint16_t* lambda = scratch; // new uint8_t[scount]
+    uint16_t* omega = lambda + scount; //new uint8_t[t + 1]
+    uint16_t* syn = omega + t + 1; //new uint8_t[scount]
 
     /*Syndrome calculation: substitution method
     Buffer view: B_0, B_1, ...
@@ -142,6 +141,7 @@ int __cdecl Decode(uint8_t n, uint8_t k, uint16_t* lut, uint8_t* scratch, uint8_
 
     Stepper method. S_0(R_y) = 0, S_1(R_y) = exp(y + log(B_0 ^ S_0)), ... S(R_y) = B_n-1 ^ S_n-1
     */
+    uint16_t hasErrors = 0;
     for (int j = 0; j < scount; j++)
     {
         uint16_t s = 0;
@@ -150,7 +150,9 @@ int __cdecl Decode(uint8_t n, uint8_t k, uint16_t* lut, uint8_t* scratch, uint8_
             s = lutLog[in[m] ^ s];
             s = lutExp[s + j];
         }
-        syn[j] = (uint8_t)s ^ in[n - 1];
+        s ^= in[n - 1];
+        hasErrors |= s;
+        syn[j] = lutLog[s];
     }
 
     //printf_s("Syndromes: ");
@@ -158,17 +160,14 @@ int __cdecl Decode(uint8_t n, uint8_t k, uint16_t* lut, uint8_t* scratch, uint8_
     //    printf_s("%d ", syn[j]);
     //printf_s("\n");
 
-    uint8_t hasErrors = 0;
-    for (int j = 0; j < scount; j++)
-        hasErrors |= syn[j];
     if (!hasErrors) return 0;
 
     //Lambda calculation: Berlekamp's method
-    uint8_t* b = syn + scount, *Lm = b + lcount; //4n-3k+2 + 2n-2k+2
+    uint16_t* b = syn + scount, *Lm = b + scount; //5 * scount
     //Set initial value of b and lambda to 1
-    memset(b + 1, 0, (size_t)lcount - 1);
+    memset(b, 0, scount * sizeof(uint16_t));
     b[0] = 1;
-    memset(lambda + 1, 0, (size_t)lcount - 1);
+    memset(lambda, 0, scount * sizeof(uint16_t));
     lambda[0] = 1;
     int l = 0;
     /* First, calculate delta = S_r-1 ^ lambda_1 * S_r-2 ^ ... ^ lambda_l * S_r-l-1
@@ -184,16 +183,18 @@ int __cdecl Decode(uint8_t n, uint8_t k, uint16_t* lut, uint8_t* scratch, uint8_
     for (int r = 1; r <= scount; r++)
     {
         int idx = r - 1;
-        uint8_t delta = syn[idx--];
+        uint16_t delta = lutExp[syn[idx--]];
         for (int m = 1; m <= l; m++)
-            delta ^= GFMulFast(lambda[m], syn[idx--], lutLog, lutExp);
+        {
+            uint16_t li = lutLog[lambda[m]];
+            delta ^= lutExp[li + syn[idx--]];
+        }
 
-        //printf_s("r=%d, l=%d, d=%d\n", r, l, delta);
         if (delta)
         {
-            memcpy_s(Lm, lcount, lambda, lcount);
+            memcpy_s(Lm, scount * sizeof(uint16_t), lambda, scount * sizeof(uint16_t));
             uint16_t dlg = lutLog[delta], blg;
-            for (int m = 1; m < lcount; m++)
+            for (int m = 1; m < scount; m++)
             {
                 blg = lutLog[b[m - 1]];
                 lambda[m] ^= (uint8_t)lutExp[blg + dlg];
@@ -202,7 +203,7 @@ int __cdecl Decode(uint8_t n, uint8_t k, uint16_t* lut, uint8_t* scratch, uint8_
             {
                 l = r - l;
                 dlg = 255 - dlg; //Inverse
-                for (int m = 0; m < lcount; m++)
+                for (int m = 0; m < scount; m++)
                 {
                     blg = lutLog[Lm[m]];
                     b[m] = (uint8_t)lutExp[blg + dlg];
@@ -210,20 +211,20 @@ int __cdecl Decode(uint8_t n, uint8_t k, uint16_t* lut, uint8_t* scratch, uint8_
             }
             else
             {
-                for (int m = lcount - 1; m > 0; m--) //Shift
+                for (int m = scount - 1; m > 0; m--) //Shift
                     b[m] = b[m - 1];
                 b[0] = 0;
             }
         }
         else
         {
-            for (int m = lcount - 1; m > 0; m--) //Shift
+            for (int m = scount - 1; m > 0; m--) //Shift
                 b[m] = b[m - 1];
             b[0] = 0;
         }
     }
-    int nerr = 0, t = scount / 2;
-    for (int m = lcount - 1; m > 0; m--) //Find deg(lambda)
+    uint8_t nerr = 0;
+    for (int m = scount - 1; m > 0; m--) //Find deg(lambda)
     {
         if (lambda[m])
         {
@@ -232,8 +233,8 @@ int __cdecl Decode(uint8_t n, uint8_t k, uint16_t* lut, uint8_t* scratch, uint8_
         }
     }
     if (nerr > t)
-        return -nerr; //deg(lambda) > t? Uncorrectable error pattern occured
-    //scratch: btemp, lambda, omega, syn
+        return -2; //deg(lambda) > t? Uncorrectable error pattern occured
+    //scratch: lambda, omega, syn
 
     //printf_s("Lambda: ");
     //for (int j = 0; j < lcount; j++)
@@ -260,19 +261,16 @@ int __cdecl Decode(uint8_t n, uint8_t k, uint16_t* lut, uint8_t* scratch, uint8_
     //Omega must be calculated only up to t power
     for (int m = 0; m <= t; m++)
     {
-        omega[m] = syn[m];
+        omega[m] = lutExp[syn[m]];
         for (int l = 1; l <= m; l++)
-            omega[m] ^= GFMulFast(lambda[l], syn[m - l], lutLog, lutExp);
-    }    
-    //printf_s("Omega: ");
-    //for (int j = 0; j <= scount / 2; j++)
-    //    printf_s("%d ", omega[j]);
-    //printf_s("\n");
+        {
+            uint16_t li = lutLog[lambda[l]];
+            omega[m] ^= lutExp[li + syn[m - l]];
+        }
+    }
+    //scratch: lambda, omega
 
-    //scratch: btemp, lambda, omega
-    
-    int xlength = t; //We need to analyze only t errors
-    uint16_t* xterm = (uint16_t*)(omega + lcount);// new uint16_t[xlength]; //2n-k + 3n-3k
+    uint16_t* xterm = (uint16_t*)(omega + t + 1);// new uint16_t[t]
     /* Chien search
     We need to substitute x[] to labmda(x), where x[] = x^-n+1, x^-n+2, ..., 1 = x^256-n, x^256-n+1, ..., 1
     Because lambda[] = lambda_0 * x^l-1, lambda_1 * x^l-2, ... lambda_l
@@ -281,7 +279,7 @@ int __cdecl Decode(uint8_t n, uint8_t k, uint16_t* lut, uint8_t* scratch, uint8_
     And change xterm[]: xterm_m = (xterm_m + m + 1) mod 255
     */
     int x = 256 - n;
-    for (int j = 0; j < xlength; j++)
+    for (int j = 0; j < t; j++)
     {
         if (!lambda[j + 1])
         {
@@ -291,49 +289,53 @@ int __cdecl Decode(uint8_t n, uint8_t k, uint16_t* lut, uint8_t* scratch, uint8_
         xterm[j] = lutLog[lambda[j + 1]] + x * (j + 1);
         xterm[j] %= 255;
     }
+    uint8_t efound = 0;
+#ifdef ERROR_CHECKING
     for (int j = 0; j < n; j++)
+#else
+    for (int j = 0; j < k; j++)
+#endif // ERROR_CHECKING
     {
-        in[j] = 1;
-        for (int m = 0; m < xlength; m++)
+        uint8_t p = 1;
+        for (int m = 0; m < t; m++)
         {
             uint16_t e = xterm[m];
             if (e > 255) continue;
-            in[j] ^= lutExp[e];
-            xterm[m] += m + 1;
-            if (xterm[m] >= 255)
-                xterm[m] -= 255;
+            p ^= lutExp[e];
+            e += m + 1;
+            if (e >= 255)
+                e -= 255;
+            xterm[m] = e;
         }
-    }
-
-    //printf_s("Chien search: \n");
-    //for (int j = 0; j < n; j++)
-    //    printf_s("%d ", btemp[j]);
-    //printf_s("\n");
-
-    for (int m = 0; m < k; m++)
-    {
-        if (in[m]) continue;
-        
-        uint16_t xIdx = 256 - n + m, xp = xIdx;
-        uint8_t s = 0, y = omega[0];
-        for (int l = 1; l <= t; l++)
+        if (!p)
         {
-            uint16_t lg = lutLog[omega[l]];
-            y ^= lutExp[xIdx + lg]; //Omega(X^-1)
-            if (l & 1)
+            efound++;
+            uint16_t xIdx = 256 - n + (uint8_t)j, xp = xIdx;
+            uint8_t s = 0, y = (uint8_t)omega[0];
+            for (int l = 1; l <= t; l++)
             {
-                lg = lutLog[lambda[l]];
-                s ^= lutExp[xIdx + lg]; //Lambda'(X^-1) * X^-1
+                uint16_t lg = lutLog[omega[l]];
+                y ^= lutExp[xIdx + lg]; //Omega(X^-1)
+                if (l & 1)
+                {
+                    lg = lutLog[lambda[l]];
+                    s ^= lutExp[xIdx + lg]; //Lambda'(X^-1) * X^-1
+                }
+                xIdx += xp;
+                if (xIdx >= 255)
+                    xIdx -= 255;
             }
-            xIdx += xp;
-            if (xIdx >= 255)
-                xIdx -= 255;
+            s = GFInvFast(s, lutLog, lutExp);
+            s = GFMulFast(y, s, lutLog, lutExp);
+
+            in[j] ^= s;
         }
-        s = GFInvFast(s, lutLog, lutExp);
-        s = GFMulFast(y, s, lutLog, lutExp);
-
-        out[m] ^= s;
     }
+#ifdef ERROR_CHECKING
+    if (efound != nerr)
+        return -2;
+#endif // ERROR_CHECKING
 
+    memcpy_s(out, k, in, k);
     return nerr;
 }

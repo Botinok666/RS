@@ -108,16 +108,15 @@ int __cdecl EncodeFL(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* coefs, uint8_t
 int __cdecl DecodeFL(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* scratch, uint8_t* in, uint8_t* out)
 {
     //Required size of scratch buffer is 6n-5k+4
-    int scount = n - k, lcount = scount + 1;
+    uint8_t scount = n - k;
     if (scount < 2 || n < 4)
         return -1;
-
     union u16u8 idx;
-    //uint8_t* btemp = scratch;
+    uint8_t t = scount >> 1; //Error capacity
+
     uint8_t* lambda = scratch; // btemp + n;
-    uint8_t* omega = lambda + lcount;
-    uint8_t* syn = omega + scount;
-    memcpy_s(out, k, in, k);
+    uint8_t* omega = lambda + scount;
+    uint8_t* syn = omega + t + 1;
 
     //uint16_t stemp[16]; //2n-k + 2n
     //for (int j = 0; j < n; j++)
@@ -165,11 +164,11 @@ int __cdecl DecodeFL(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* scratch, uint8
     if (!hasErrors) return 0;
 
     //Lambda calculation: Berlekamp's method
-    uint8_t* b = syn + scount, * Lm = b + lcount; //4n-3k+2 + 2n-2k+2
+    uint8_t* b = syn + scount, *Lm = b + scount; //4n-3k+2 + 2n-2k+2
     //Set initial value of b and lambda to 1
-    memset(b + 1, 0, (size_t)lcount - 1);
+    memset(b + 1, 0, (size_t)scount - 1);
     b[0] = 1;
-    memset(lambda + 1, 0, (size_t)lcount - 1);
+    memset(lambda + 1, 0, (size_t)scount - 1);
     lambda[0] = 1;
     int l = 0;
 
@@ -182,9 +181,9 @@ int __cdecl DecodeFL(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* scratch, uint8
 
         if (delta)
         {
-            memcpy_s(Lm, lcount, lambda, lcount);
+            memcpy_s(Lm, scount, lambda, scount);
             idx.u8.b = delta;
-            for (int m = 1; m < lcount; m++)
+            for (int m = 1; m < scount; m++)
             {
                 idx.u8.a = b[m - 1];
                 lambda[m] ^= lut[idx.u16];
@@ -194,7 +193,7 @@ int __cdecl DecodeFL(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* scratch, uint8
             {
                 l = r - l;
                 idx.u8.b = GFInvFast2(delta, lut);
-                for (int m = 0; m < lcount; m++)
+                for (int m = 0; m < scount; m++)
                 {
                     idx.u8.a = Lm[m];
                     b[m] = lut[idx.u16];
@@ -202,20 +201,20 @@ int __cdecl DecodeFL(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* scratch, uint8
             }
             else
             {
-                for (int m = lcount - 1; m > 0; m--) //Shift
+                for (int m = scount - 1; m > 0; m--) //Shift
                     b[m] = b[m - 1];
                 b[0] = 0;
             }
         }
         else
         {
-            for (int m = lcount - 1; m > 0; m--) //Shift
+            for (int m = scount - 1; m > 0; m--) //Shift
                 b[m] = b[m - 1];
             b[0] = 0;
         }
     }
-    int nerr = 0, t = scount / 2;
-    for (int m = lcount - 1; m > 0; m--) //Find deg(lambda)
+    uint8_t nerr = 0;
+    for (int m = scount - 1; m > 0; m--) //Find deg(lambda)
     {
         if (lambda[m])
         {
@@ -224,7 +223,7 @@ int __cdecl DecodeFL(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* scratch, uint8
         }
     }
     if (nerr > t)
-        return -nerr; //deg(lambda) > t? Uncorrectable error pattern occured
+        return -2; //deg(lambda) > t? Uncorrectable error pattern occured
     //scratch: btemp, lambda, omega, syn
 
     for (int m = 0; m <= t; m++)
@@ -239,8 +238,8 @@ int __cdecl DecodeFL(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* scratch, uint8
     }
     //scratch: btemp, lambda, omega
 
-    int xlength = t; //We need to analyze only t errors
-    uint8_t* xterm = omega + lcount, *xmul = xterm + xlength;
+    uint8_t* xpos = omega + t + 1;
+    uint8_t* xterm = xpos + t, *xmul = xterm + t;
 
     uint8_t x = GFIdxFast2(256 - n, lut);
     xterm[0] = x;
@@ -248,36 +247,41 @@ int __cdecl DecodeFL(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* scratch, uint8
     union u16u8 idm;
     idm.u8.b = 2;
     idx.u8.b = x;
-    for (int j = 1; j < xlength; j++)
+    for (int j = 1; j < t; j++)
     {
         idm.u8.a = xmul[j - 1];
         xmul[j] = lut[idm.u16]; //x, x^2, x^3, ...
         idx.u8.a = xterm[j - 1];
         xterm[j] = lut[idx.u16]; //x^p, (x^p)^2, (x^p)^3, ...
     }
-    for (int j = 0; j < xlength; j++)
+    for (int j = 0; j < t; j++)
         xterm[j] = GFMulFast2(lambda[j + 1], xterm[j], lut); //l_1*x^p, l_2*(x^p)^2, ...
 
+    uint8_t efound = 0;
     for (int j = 0; j < n; j++)
     {
-        in[j] = 1;
-        for (int m = 0; m < xlength; m++)
+        uint8_t p = 1;
+        for (int m = 0; m < t; m++)
         {
             idm.u8.a = xterm[m];
-            in[j] ^= idm.u8.a;
+            p ^= idm.u8.a;
             idm.u8.b = xmul[m];
             xterm[m] = lut[idm.u16]; //l_1*x^(p+1), l_2*(x^(p+1))^2, ...
         }
+        if (!p)
+        {
+            xpos[efound++] = j;
+            if (efound > nerr)
+                return -3;
+        }
     }
+    if (efound != nerr)
+        return -2;
 
-    //printf_s("Chien search: \n");
-    //for (int j = 0; j < n; j++)
-    //    printf_s("%d ", btemp[j]);
-    //printf_s("\n");
-
-    for (int m = 0; m < k; m++)
+    for (int j = 0; j < efound; j++)
     {
-        if (in[m]) continue;
+        uint8_t m = xpos[j];
+
         x = GFIdxFast2(256 - n + m, lut);
         uint8_t y = omega[0], s = 0;
         idx.u8.b = x;
@@ -297,8 +301,9 @@ int __cdecl DecodeFL(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* scratch, uint8
         idx.u8.b = GFInvFast2(s, lut);
         s = lut[idx.u16];
 
-        out[m] ^= s;
+        in[m] ^= s;
     }
+    memcpy_s(out, k, in, k);
     
     return nerr;
 }

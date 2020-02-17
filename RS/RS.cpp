@@ -85,10 +85,10 @@ void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
     FillRLUT(lut);
     FillFLUT(flut);
     uint16_t* coefs = new uint16_t[COEFS_SIZE_RLUT(n, k)]; //Minimum size
-    FillCoefficents(coefs, (uint8_t)(n - k), lut);
+    FillCoefficents((uint16_t*)coefs, (uint8_t)(n - k), lut);
     uint8_t* coefsFL = new uint8_t[COEFS_SIZE_FLUT(n, k)];
     FillCoefficentsFL(coefsFL, (uint8_t)(n - k), flut);
-    uint8_t* scratch = new uint8_t[SCRATCH_SIZE_RLUT(n, k)];
+    uint16_t* scratch = new uint16_t[SCRATCH_SIZE_RLUT(n, k)];
     std::random_device rd;
     std::mt19937 rgen(rd()); 
     LARGE_INTEGER StartingTime, EndingTime, ElapsedMilliseconds;
@@ -177,7 +177,7 @@ void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
     QueryPerformanceCounter(&StartingTime);
     for (int j = 0; j < blkCount; j++)
     {
-        DecodeFL(n, k, flut, scratch, &outblock[j * n], &memblock[j * k]); //Data shrinks here
+        DecodeFL(n, k, flut, (uint8_t*)scratch, &outblock[j * n], &memblock[j * k]); //Data shrinks here
     }    
     QueryPerformanceCounter(&EndingTime);
     ElapsedMilliseconds.QuadPart = EndingTime.QuadPart - StartingTime.QuadPart;
@@ -214,8 +214,9 @@ int main()
     uint8_t buffer[15] = { 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
     uint8_t buffer2[15] = { 0, 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
     uint16_t coefs[COEFS_SIZE_RLUT(15, 11)];
-    FillCoefficents(coefs, n - k, lut);
-    uint8_t scratch[SCRATCH_SIZE_RLUT(15, 11)];
+    FillCoefficents((uint16_t*)coefs, n - k, lut);
+    uint16_t scratch[SCRATCH_SIZE_RLUT(15, 11)];
+    //memcpy_s(scratch, COEFS_SIZE_RLUT(15, 11), coefs, COEFS_SIZE_RLUT(15, 11));
 
     uint8_t coefsFL[COEFS_SIZE_FLUT(15, 11)];
     FillCoefficentsFL(coefsFL, n - k, flut);
@@ -230,7 +231,7 @@ int main()
 
     memcpy_s(buffer, 15, orig, 15);
     //std::cout << "Check remainder: " << (Decode(n, k, lut, scratch, buffer) ? "fail" : "OK") << std::endl;
-    std::cout << "Check remainder: " << (DecodeFL(n, k, flut, scratch, buffer, out) ? "fail" : "OK") << std::endl;
+    std::cout << "Check remainder: " << (DecodeFL(n, k, flut, (uint8_t*)scratch, buffer, out) ? "fail" : "OK") << std::endl;
 
     memcpy_s(buffer, 15, orig, 15);
     buffer[0] = 14;
@@ -241,7 +242,7 @@ int main()
     std::cout << std::endl;
 
     //int dec = Decode(n, k, lut, scratch, buffer);
-    int dec = DecodeFL(n, k, flut, scratch, buffer, out);
+    int dec = DecodeFL(n, k, flut, (uint8_t*)scratch, buffer, out);
     std::cout << "Found errors I: " << dec << std::endl;
 
     std::cout << "Corrected I: \n";
