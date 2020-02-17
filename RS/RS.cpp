@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include <fstream>
+#include <iomanip>
 #include <random>
 #include <windows.h>
 #include "rsalurlut.h"
@@ -94,6 +95,7 @@ void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
     LARGE_INTEGER Frequency;
 
     std::cout << "\nTesting ALU with reduced LUT\n";
+    std::cout << std::setprecision(4);
     QueryPerformanceFrequency(&Frequency);
     QueryPerformanceCounter(&StartingTime);
     for (int j = 0; j < blkCount; j++)
@@ -105,8 +107,8 @@ void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
     ElapsedMilliseconds.QuadPart *= 1000;
     ElapsedMilliseconds.QuadPart /= Frequency.QuadPart;
     int msecs = ElapsedMilliseconds.LowPart;
-    std::cout << "Encoding finished in " << msecs / 1000 << '.' << msecs % 1000 << 's';
-    std::cout << ", speed: " << ((size / 1024) * 1000) / msecs << "Kb/s\n";
+    std::cout << "Encoding finished in " << msecs / 1000.0f << 's';
+    std::cout << ", speed: " << ((size / 1024) * 1000) / msecs << " Kb/s\n";
 
     int errorSum = 0;
     //Introduce some errors
@@ -134,8 +136,8 @@ void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
     ElapsedMilliseconds.QuadPart *= 1000;
     ElapsedMilliseconds.QuadPart /= Frequency.QuadPart;
     msecs = ElapsedMilliseconds.LowPart;
-    std::cout << "Decoding finished in " << msecs / 1000 << '.' << msecs % 1000 << 's';
-    std::cout << ", speed: " << ((size / 1024) * 1000) / msecs << "Kb/s\n";
+    std::cout << "Decoding finished in " << msecs / 1000.0f << 's';
+    std::cout << ", speed: " << ((size / 1024) * 1000) / msecs << " Kb/s\n";
 
     int check = memcmp(memblock, origblock, size);
     std::cout << "Data integrity check " << (check ? "failed\n" : "OK\n");
@@ -153,8 +155,8 @@ void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
     ElapsedMilliseconds.QuadPart *= 1000;
     ElapsedMilliseconds.QuadPart /= Frequency.QuadPart;
     msecs = ElapsedMilliseconds.LowPart;
-    std::cout << "Encoding finished in " << msecs / 1000 << '.' << msecs % 1000 << 's';
-    std::cout << ", speed: " << ((size / 1024) * 1000) / msecs << "Kb/s\n";
+    std::cout << "Encoding finished in " << msecs / 1000.0f << 's';
+    std::cout << ", speed: " << ((size / 1024) * 1000) / msecs << " Kb/s\n";
 
     errorSum = 0;
     //Introduce some errors
@@ -182,8 +184,8 @@ void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
     ElapsedMilliseconds.QuadPart *= 1000;
     ElapsedMilliseconds.QuadPart /= Frequency.QuadPart;
     msecs = ElapsedMilliseconds.LowPart;
-    std::cout << "Decoding finished in " << msecs / 1000 << '.' << msecs % 1000 << 's';
-    std::cout << ", speed: " << ((size / 1024) * 1000) / msecs << "Kb/s\n";
+    std::cout << "Decoding finished in " << msecs / 1000.0f << 's';
+    std::cout << ", speed: " << ((size / 1024) * 1000) / msecs << " Kb/s\n";
 
     check = memcmp(memblock, origblock, size);
     std::cout << "Data integrity check " << (check ? "failed\n" : "OK\n");
