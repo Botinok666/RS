@@ -199,7 +199,9 @@ uint8_t flut[FULL_LUT_SIZE];
 int main()
 {
     std::cout << "Hello World!\n";
-    RunBenchmark(255, 191, "C:\\Intel\\alisa.jpg");
+    RunBenchmark(255, 223, "C:\\Intel\\alisa.jpg"); //t=16
+    RunBenchmark(255, 191, "C:\\Intel\\alisa.jpg"); //t=32
+    RunBenchmark(255, 159, "C:\\Intel\\alisa.jpg"); //t=48
     return 0;
 
     FillRLUT(lut);

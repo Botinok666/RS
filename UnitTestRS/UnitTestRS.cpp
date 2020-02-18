@@ -90,7 +90,7 @@ namespace UnitTestRS
 				uint8_t t = (uint8_t)((n - k) / 2); //Error capacity
 				uint16_t* coefs = new uint16_t[COEFS_SIZE_RLUT(n, k)]; //Minimum size
 				FillCoefficents(coefs, (uint8_t)(n - k), lut);
-				uint8_t* scratch = new uint8_t[SCRATCH_SIZE_RLUT(n, k)];
+				uint16_t* scratch = new uint16_t[SCRATCH_SIZE_RLUT(n, k)];
 				std::vector<uint8_t> errnom = { (uint8_t)(t / 2), (uint8_t)(t - 1), t };
 				std::vector<uint8_t> fillval = { 0, 0xff };
 
@@ -155,7 +155,7 @@ namespace UnitTestRS
 
 				uint16_t* coefs = new uint16_t[COEFS_SIZE_RLUT(n, k)]; //Minimum size
 				FillCoefficents(coefs, (uint8_t)(n - k), lut);
-				uint8_t* scratch = new uint8_t[SCRATCH_SIZE_RLUT(n, k)];
+				uint16_t* scratch = new uint16_t[SCRATCH_SIZE_RLUT(n, k)];
 				std::vector<uint8_t> sdpos = { 0, (uint8_t)(k / 2), (uint8_t)(k - 1) };
 				std::vector<uint8_t> errnom = { (uint8_t)(t / 2), (uint8_t)(t - 1), t };
 
@@ -214,56 +214,6 @@ namespace UnitTestRS
 				delete[] coefs, scratch;
 			}
 		}		
-		TEST_METHOD(NegativeTestSingleByteDataALU)
-		{
-			uint16_t lut[REDUCED_LUT_SIZE];
-			FillRLUT(lut);
-			uint8_t buffer[255], bufferOrig[255], out[255];
-			wchar_t message[200];
-			wchar_t positionInfo[50];
-			for (auto i : nk)
-			{
-				size_t n = i.first, k = i.second;
-				uint8_t t = (uint8_t)((n - k) / 2); //Error capacity
-
-				uint16_t* coefs = new uint16_t[COEFS_SIZE_RLUT(n, k)]; //Minimum size
-				FillCoefficents(coefs, (uint8_t)(n - k), lut);
-				uint8_t* scratch = new uint8_t[SCRATCH_SIZE_RLUT(n, k)];
-				std::vector<uint8_t> sdpos = { 0, (uint8_t)(k / 2), (uint8_t)(k - 1) };
-				std::vector<uint8_t> errbad = { (uint8_t)(t + 1), (uint8_t)(t + t / 2) };
-
-				for (auto v : sdval)
-				{
-					for (auto p : sdpos)
-					{
-						memset(buffer, 0, k); //Test with k-1 zeros
-						buffer[p] = v; //Different values at different positions
-						swprintf_s(positionInfo, L"n %d, k %d, val %d, pos %d", (uint8_t)n, (uint8_t)k, v, p);
-
-						int enc = Encode((uint8_t)n, (uint8_t)k, lut, coefs, buffer, out);
-						swprintf_s(message, L"Encoder returned wrong result. %s", positionInfo);
-						Assert::AreEqual(0, enc, message);
-						memcpy(bufferOrig, out, n);
-
-						for (auto e : errbad) //Introduce uncorrectable error patterns
-						{
-							memcpy(buffer, bufferOrig, n);
-							IntroduceDistributedErrors(e, (uint8_t)n, buffer);
-							int dec = Decode((uint8_t)n, (uint8_t)k, lut, scratch, buffer, out);
-							swprintf_s(message, L"Decoder returned wrong result (random %d errors). %s", e, positionInfo);
-							Assert::AreNotEqual(-2, dec, message);
-
-							memcpy(buffer, bufferOrig, n);
-							IntroduceSequencedErrors(e, (uint8_t)n, buffer);
-							dec = Decode((uint8_t)n, (uint8_t)k, lut, scratch, buffer, out);
-							swprintf_s(message, L"Decoder returned wrong result (sequenced %d errors). %s", e, positionInfo);
-							Assert::AreNotEqual(-2, dec, message);
-						}
-					}
-				}
-				delete[] coefs, scratch;
-			}
-		}
 
 		TEST_METHOD(TestRandomDataALU)
 		{
@@ -279,7 +229,7 @@ namespace UnitTestRS
 
 				uint16_t* coefs = new uint16_t[COEFS_SIZE_RLUT(n, k)]; //Minimum size
 				FillCoefficents(coefs, (uint8_t)(n - k), lut);
-				uint8_t* scratch = new uint8_t[SCRATCH_SIZE_RLUT(n, k)];
+				uint16_t* scratch = new uint16_t[SCRATCH_SIZE_RLUT(n, k)];
 				std::vector<uint8_t> errnom = { (uint8_t)(t / 2), (uint8_t)(t - 1), t };
 
 				for (int p = 0; p < k; p++)
@@ -470,56 +420,7 @@ namespace UnitTestRS
 				delete[] coefs, scratch;
 			}
 		}
-		TEST_METHOD(NegativeTestSingleByteDataALUFL)
-		{
-			FillFLUT(flut);
-			uint8_t buffer[255], bufferOrig[255], out[255];
-			wchar_t message[200];
-			wchar_t positionInfo[50];
-			for (auto i : nk)
-			{
-				size_t n = i.first, k = i.second;
-				uint8_t t = (uint8_t)((n - k) / 2); //Error capacity
-
-				uint8_t* coefs = new uint8_t[COEFS_SIZE_FLUT(n, k)]; //Minimum size
-				FillCoefficentsFL(coefs, (uint8_t)(n - k), flut);
-				uint8_t* scratch = new uint8_t[SCRATCH_SIZE_FLUT(n, k)];
-				std::vector<uint8_t> sdpos = { 0, (uint8_t)(k / 2), (uint8_t)(k - 1) };
-				std::vector<uint8_t> errbad = { (uint8_t)(t + 1), (uint8_t)(t + t / 2) };
-
-				for (auto v : sdval)
-				{
-					for (auto p : sdpos)
-					{
-						memset(buffer, 0, k); //Test with k-1 zeros
-						buffer[p] = v; //Different values at different positions
-						swprintf_s(positionInfo, L"n %d, k %d, val %d, pos %d", (uint8_t)n, (uint8_t)k, v, p);
-
-						int enc = EncodeFL((uint8_t)n, (uint8_t)k, flut, coefs, buffer, out);
-						swprintf_s(message, L"Encoder returned wrong result. %s", positionInfo);
-						Assert::AreEqual(0, enc, message);
-						memcpy(bufferOrig, out, n);
-
-						for (auto e : errbad) //Introduce uncorrectable error patterns
-						{
-							memcpy(buffer, bufferOrig, n);
-							IntroduceDistributedErrors(e, (uint8_t)n, buffer);
-							int dec = DecodeFL((uint8_t)n, (uint8_t)k, flut, scratch, buffer, out);
-							swprintf_s(message, L"Decoder returned wrong result (random %d errors). %s", e, positionInfo);
-							Assert::AreEqual(-(int)e, dec, message);
-
-							memcpy(buffer, bufferOrig, n);
-							IntroduceSequencedErrors(e, (uint8_t)n, buffer);
-							dec = DecodeFL((uint8_t)n, (uint8_t)k, flut, scratch, buffer, out);
-							swprintf_s(message, L"Decoder returned wrong result (sequenced %d errors). %s", e, positionInfo);
-							Assert::AreEqual(-(int)e, dec, message);
-						}
-					}
-				}
-				delete[] coefs, scratch;
-			}
-		}
-
+		
 		TEST_METHOD(TestRandomDataALUFL)
 		{
 			FillFLUT(flut);
