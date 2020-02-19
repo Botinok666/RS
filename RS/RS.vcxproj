@@ -150,10 +150,12 @@
     <ClCompile Include="RS.cpp" />
     <ClCompile Include="rsaluflut.c" />
     <ClCompile Include="rsalurlut.c" />
+    <ClCompile Include="rssse4.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="rsaluflut.h" />
     <ClInclude Include="rsalurlut.h" />
+    <ClInclude Include="rssse4.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

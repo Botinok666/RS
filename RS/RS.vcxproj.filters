@@ -24,12 +24,18 @@
     <ClCompile Include="rsaluflut.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="rssse4.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="rsalurlut.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="rsaluflut.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="rssse4.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -1,16 +1,11 @@
-#include "rsalurlut.h"
+#include "rssse4.h"
+#include <intrin.h>
 //#include <stdio.h>
 //#define ERROR_CHECKING
 
-// Fast multiply using table lookup
-uint8_t inline GFMulFast(uint8_t a, uint8_t b, uint16_t* lutLog, uint16_t* lutExp)
-{
-    int t = lutLog[a] + lutLog[b];
-    return (uint8_t)lutExp[t];
-}
 // Slow multiply, using shifting
 // Polynomial x^8 + x^4 + x^3 + x^2 + 1
-uint8_t GFMul(uint8_t a, uint8_t b)
+uint8_t GFMul3(uint8_t a, uint8_t b)
 {
     uint8_t r = 0, t;
     while (a)
@@ -25,86 +20,111 @@ uint8_t GFMul(uint8_t a, uint8_t b)
     }
     return r;
 }
-uint8_t inline GFInvFast(uint8_t a, uint16_t* lutLog, uint16_t* lutExp)
-{
-    if (!a) return 0;
-    int t = 255 - lutLog[a];
-    return (uint8_t)lutExp[t];
-}
-// Fill the Exp/Log table
-void FillRLUT(uint16_t* lut) {
+// Fill the Exp/Log/SSE tables
+void FillSSELUT(uint8_t* lut) {
     uint8_t x = 1, index = 0;
-    uint16_t* lutExp = lut + 256;
-    lutExp[0] = x; //0:255 - log, 256:767 - exp, 768:1792 - zero
+    uint8_t* lutExp = lut + 256, *lutSSE = lut + 768;
+    lutExp[0] = x; //0:255 - log, 256:767 - exp, 768:8960 - sse
     for (int i = 0; i < 255; i++) {
-        uint8_t y = GFMul(x, 2);
+        uint8_t y = GFMul3(x, 2);
         lutExp[++index] = y;
         lutExp[index + 255] = y;
         x = y;
     }
-    lut[0] = 511; //Log(0) = inf
+    lutExp[767] = 0;
+
+    lut[0] = 255; //Log(0) = inf
     for (int i = 0; i < 255; i++)
+    {
         lut[lutExp[i]] = i;
-    memset(lutExp + 511, 0, 1024);
+
+        uint8_t* usse = lutSSE + i * 32LL, *lsse = usse + 16;
+        for (uint8_t j = 0; j < 16; j++)
+        {
+            *usse++ = GFMul3(j << 4, (uint8_t)i);
+            *lsse++ = GFMul3(j, (uint8_t)i);
+        }
+    }
 }
-void FillCoefficents(uint16_t* coefs, const uint8_t count, uint16_t* lut)
+void FillCoefficentsSSE(uint8_t* coefs, uint8_t count, uint8_t* lut)
 {
     if (count < 2) return;
 
-    uint16_t* lutExp = lut + 256, * lutLog = lut;
-    coefs[count] = lutExp[0];
+    uint8_t* lutExp = lut + 256, * lutLog = lut;
+    coefs[count] = 1;
     coefs[count - 1] = 1;
     for (int k = 2; k <= count; k++)
     {
         coefs[count - k] = 1;
-        uint16_t s;
+        uint16_t s, v = k - 1;
         for (int i = count - k + 2; i <= count; i++)
         {
-            s = lutLog[coefs[i - 1]] + k - 1;
+            s = coefs[i - 1];
+            if (!s) continue;
+            s = lutLog[s] + v;
             coefs[i - 1] = coefs[i] ^ lutExp[s];
         }
-        s = lutLog[coefs[count]] + k - 1;
+        s = coefs[count];
+        if (!s) continue;
+        s = lutLog[s] + v;
         coefs[count] = lutExp[s];
     }
-    for (int j = 0; j <= count; j++)
-        coefs[j] = lutLog[coefs[j]];
+    memset(coefs + count + 1, 0, COEFS_SIZE_SSE - count - 1);
 }
-int __cdecl Encode(const uint8_t n, const uint8_t k, uint16_t* lut, uint16_t* coefs, uint8_t* in, uint8_t* out)
+int __cdecl EncodeSSE4(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* coefs, uint8_t* in, uint8_t* out)
 {
     //Required size of scratch buffer is n
-    int length = n - k + 1;
+    uint8_t length = n - k;
     if (length < 3 || n < 4)
         return -1;
-    uint16_t* lutExp = lut + 256, *lutLog = lut;
+    length >>= 4;
+    uint8_t buffer[255 + 16];
+    uint8_t* lutExp = lut + 256, * lutLog = lut, * lutSSE = lut + 768;
+    uint8_t* oj = buffer;
+    __m128i vmask = _mm_set1_epi8(0xf);
+    memcpy_s(buffer, k, in, k);
     memcpy_s(out, k, in, k);
-    memset(out + k, 0, n - k);
+    memset(buffer + k, 0, n - k);
+    coefs++; //We don't need coefs[0]
+
     //Remainder calculation: long division
-    uint8_t* oj = out;
-    coefs++;
     for (int j = 0; j < k; j++)
     {
-        uint16_t mul = lutLog[*oj++];
-        uint8_t* ol = oj;
-        uint16_t* cl = coefs;
-        for (int l = 1; l < length; l++)
-            *ol++ ^= (uint8_t)lutExp[*cl++ + mul];
+        int idx = *oj++ * 32;
+        __m128i* lutv = (__m128i*)(lutSSE + idx);
+        __m128i umul = _mm_loadu_si128(lutv);
+        __m128i lmul = _mm_loadu_si128(lutv + 1);
+
+        __m128i* ol = (__m128i*)oj;
+        __m128i* cl = (__m128i*)coefs;
+        for (uint8_t l = 0; l <= length; l++)
+        {
+            __m128i ucoefs = _mm_loadu_si128(cl++);
+            __m128i lcoefs = _mm_and_si128(ucoefs, vmask); //Lower 4 bits
+            lcoefs = _mm_shuffle_epi8(lmul, lcoefs); //Multiply lower 4 bits
+            ucoefs = _mm_srli_epi64(ucoefs, 4);
+            ucoefs = _mm_and_si128(ucoefs, vmask); //Upper 4 bits
+            ucoefs = _mm_shuffle_epi8(umul, ucoefs); //Multiply upper 4 bits
+            ucoefs = _mm_xor_si128(ucoefs, lcoefs); //Result of multiplication
+
+            lcoefs = _mm_loadu_si128(ol);
+            lcoefs = _mm_xor_si128(lcoefs, ucoefs);
+            _mm_store_si128(ol++, lcoefs);
+        }
     }
-    memcpy_s(out, k, in, k);
+    memcpy_s(out + k, n - k, buffer + k, n - k);
     return 0;
 }
-int __cdecl Decode(const uint8_t n, const uint8_t k, uint16_t* lut, uint16_t* scratch, uint8_t* in, uint8_t* out)
+int __cdecl DecodeSSE4(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* scratch, uint8_t* in, uint8_t* out)
 {
     //Required size of scratch buffer is 5*scount
     uint8_t scount = n - k;
     if (scount < 2 || n < 4)
         return -1;
-    uint16_t* lutExp = lut + 256, * lutLog = lut;
+    uint8_t* lutExp = lut + 256, * lutLog = lut;
     uint8_t t = scount >> 1; //Error capacity
 
-    uint16_t lambda[MAX_T_ALU], omega[MAX_T_ALU / 2 + 1], syn[MAX_T_ALU];
-    //uint16_t* lambda = scratch; // new uint8_t[scount]
-    //uint16_t* omega = lambda + scount; //new uint8_t[t + 1]
-    //uint16_t* syn = omega + t + 1; //new uint8_t[scount]
+    uint16_t lambda[MAX_T_SSE], omega[MAX_T_SSE / 2 + 1], syn[MAX_T_SSE];
 
     /*Syndrome calculation: Horner's method
     Buffer view: B_0, B_1, ...
@@ -131,8 +151,7 @@ int __cdecl Decode(const uint8_t n, const uint8_t k, uint16_t* lut, uint16_t* sc
     if (!hasErrors) return 0;
 
     //Lambda calculation: Berlekamp's method
-    uint16_t b[MAX_T_ALU], Lm[MAX_T_ALU];
-    //uint16_t* b = syn + scount, *Lm = b + scount; //5 * scount
+    uint16_t b[MAX_T_SSE], Lm[MAX_T_SSE];
     //Set initial value of b and lambda to 1
     memset(b, 0, scount * sizeof(uint16_t));
     b[0] = 1;
@@ -151,7 +170,7 @@ int __cdecl Decode(const uint8_t n, const uint8_t k, uint16_t* lut, uint16_t* sc
     */
     for (int r = 1; r <= scount; r++)
     {
-        uint16_t* si = syn + r - 1;
+        uint8_t* si = syn + r - 1;
         uint16_t delta = lutExp[*si--];
         for (int m = 1; m <= l; m++)
         {
@@ -222,7 +241,7 @@ int __cdecl Decode(const uint8_t n, const uint8_t k, uint16_t* lut, uint16_t* sc
     }
     //scratch: lambda, omega
 
-    uint16_t* xterm = syn; // (uint16_t*)(omega + t + 1);// new uint16_t[t]
+    uint8_t* xterm = syn;
     /* Chien search
     We need to substitute x[] to labmda(x), where x[] = x^-n+1, x^-n+2, ..., 1 = x^256-n, x^256-n+1, ..., 1
     Because lambda[] = lambda_0 * x^l-1, lambda_1 * x^l-2, ... lambda_l

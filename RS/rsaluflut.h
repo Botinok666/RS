@@ -4,8 +4,7 @@
 #define FULL_LUT_SIZE (256 * 256 + 512)
 #define FL_INV_OFFSET (1 << 16)
 #define FL_GFV_OFFSET ((1 << 16) + 256)
-#define COEFS_SIZE_FLUT(n, k) (n - k + 2 + n)
-#define SCRATCH_SIZE_FLUT(n, k) (6 * n - 5 * k + 4)
+#define COEFS_SIZE_FLUT(n, k) (n - k + 1LL)
 #ifdef __cplusplus
 extern "C" {
 #endif 

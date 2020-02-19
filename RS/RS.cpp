@@ -8,6 +8,7 @@
 #include <windows.h>
 #include "rsalurlut.h"
 #include "rsaluflut.h"
+#include "rssse4.h"
 
 void PrintLUT(uint16_t* lut)
 {
@@ -59,13 +60,13 @@ void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
     if (t < 4 || n < 4) return;
 
     uint8_t* memblock = nullptr;
-    int blkCount;
+    long long blkCount;
     std::streampos size;
     std::ifstream file(filename, std::ios::in | std::ios::binary | std::ios::ate);
     if (file.is_open())
     {
         size = file.tellg();
-        blkCount = (int)(size / k) + 1;
+        blkCount = size / k + 1;
         memblock = new uint8_t[blkCount * n]; //This array will be used for decoding
         file.seekg(0, std::ios::beg);
         file.read((char*)memblock, size);
@@ -84,7 +85,7 @@ void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
     uint8_t* flut = new uint8_t[FULL_LUT_SIZE];
     FillRLUT(lut);
     FillFLUT(flut);
-    uint16_t* coefs = new uint16_t[COEFS_SIZE_RLUT(n, k)]; //Minimum size
+    uint16_t* coefs = new uint16_t[COEFS_SIZE_RLUT];
     FillCoefficents((uint16_t*)coefs, (uint8_t)(n - k), lut);
     uint8_t* coefsFL = new uint8_t[COEFS_SIZE_FLUT(n, k)];
     FillCoefficentsFL(coefsFL, (uint8_t)(n - k), flut);
@@ -194,18 +195,20 @@ void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
 }
 
 uint16_t lut[REDUCED_LUT_SIZE];
-uint8_t flut[FULL_LUT_SIZE];
+//uint8_t lutf[FULL_LUT_SIZE];
+uint8_t luts[SSE_LUT_SIZE];
 
 int main()
 {
     std::cout << "Hello World!\n";
-    RunBenchmark(255, 223, "C:\\Intel\\alisa.jpg"); //t=16
-    RunBenchmark(255, 191, "C:\\Intel\\alisa.jpg"); //t=32
-    RunBenchmark(255, 159, "C:\\Intel\\alisa.jpg"); //t=48
-    return 0;
+    //RunBenchmark(255, 223, "C:\\Intel\\alisa.jpg"); //t=16
+    //RunBenchmark(255, 191, "C:\\Intel\\alisa.jpg"); //t=32
+    //RunBenchmark(255, 159, "C:\\Intel\\alisa.jpg"); //t=48
+    //return 0;
 
     FillRLUT(lut);
-    FillFLUT(flut);
+    //FillFLUT(lutf);
+    FillSSELUT(luts);
     
     //if (TestMul(flut, lut))
     //    std::cout << "Multiplication test failed\n";
@@ -213,18 +216,17 @@ int main()
     //    std::cout << "Multiplication test OK\n";
     uint8_t n = 15, k = 11;
     //uint8_t buffer[15] = { 11, 12, 13, 14, 15, 16, 17, 0, 0, 0, 0, 0, 0, 0, 0 }; //15, 7
-    uint8_t buffer[15] = { 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-    uint8_t buffer2[15] = { 0, 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-    uint16_t coefs[COEFS_SIZE_RLUT(15, 11)];
-    FillCoefficents((uint16_t*)coefs, n - k, lut);
+    uint8_t buffer[15] = { 21, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    uint8_t buffer2[15] = { 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    uint16_t coefs[COEFS_SIZE_RLUT];
+    FillCoefficents(coefs, n - k, lut);
     uint16_t scratch[SCRATCH_SIZE_RLUT(15, 11)];
-    //memcpy_s(scratch, COEFS_SIZE_RLUT(15, 11), coefs, COEFS_SIZE_RLUT(15, 11));
 
-    uint8_t coefsFL[COEFS_SIZE_FLUT(15, 11)];
-    FillCoefficentsFL(coefsFL, n - k, flut);
+    uint8_t coefsSL[COEFS_SIZE_SSE];
+    FillCoefficentsSSE(coefsSL, n - k, luts);
 
     uint8_t out[15], orig[15];
-    EncodeFL(n, k, flut, coefsFL, buffer, out);
+    EncodeSSE4(n, k, luts, coefsSL, buffer, out);
     memcpy_s(orig, 15, out, 15);
     std::cout << "Original buffer: \n";
     for (int j = 0; j < n; j++)
@@ -232,8 +234,7 @@ int main()
     std::cout << std::endl;
 
     memcpy_s(buffer, 15, orig, 15);
-    //std::cout << "Check remainder: " << (Decode(n, k, lut, scratch, buffer) ? "fail" : "OK") << std::endl;
-    std::cout << "Check remainder: " << (DecodeFL(n, k, flut, (uint8_t*)scratch, buffer, out) ? "fail" : "OK") << std::endl;
+    std::cout << "Check remainder: " << (Decode(n, k, lut, scratch, buffer, out) ? "fail" : "OK") << std::endl;
 
     memcpy_s(buffer, 15, orig, 15);
     buffer[0] = 14;
@@ -243,8 +244,7 @@ int main()
         std::cout << (int)buffer[j] << ' ';
     std::cout << std::endl;
 
-    //int dec = Decode(n, k, lut, scratch, buffer);
-    int dec = DecodeFL(n, k, flut, (uint8_t*)scratch, buffer, out);
+    int dec = Decode(n, k, lut, scratch, buffer, out);
     std::cout << "Found errors I: " << dec << std::endl;
 
     std::cout << "Corrected I: \n";
