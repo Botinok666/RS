@@ -1,11 +1,12 @@
 #include "pch.h"
 #include "CppUnitTest.h"
-#include "../RS/rsalurlut.h"
-#include "../RS/rsalurlut.c"
+#include "../RS/rsalu.h"
+#include "../RS/rsalu.c"
 #include <vector>
-#include "../RS/rsaluflut.h"
-#include "../RS/rsaluflut.c"
-#include "common.h"
+//#include "../RS/rsaluflut.h"
+//#include "../RS/rsaluflut.c"
+#include "../RS/rsssse3.h"
+#include "../RS/rsssse3.c"
 #include <random>
 #include <set>
 
@@ -73,419 +74,282 @@ namespace UnitTestRS
 	{
 	public:
 		
-		std::vector<std::pair<uint8_t, uint8_t>> nk = 
-		{ {15, 11}, {15, 7}, {135, 131}, {135, 67}, {255, 247}, {255, 187}, {255, 127} };
-		std::vector<uint8_t> sdval = { 1, 15, 88, 135, 255 };
+		const std::vector<std::pair<uint8_t, uint8_t>> nk = 
+		{ {15, 11}, {15, 7}, {135, 129}, {135, 105}, {135, 67}, {255, 247}, {255, 187}, {255, 159} };
+		const std::vector<uint8_t> sdval = { 1, 15, 88, 135, 255 };
+		const int repeats = 16;
 
-		TEST_METHOD(TestAllOnesOrZerosALU)
+		void TestAllOnesOrZeros(void* Coefs, void* LUT, void (*FillCoeffs)(void*, uint8_t, void*),
+			int (*EncodeData)(uint8_t, uint8_t, void*, void*, uint8_t*),
+			int (*DecodeData)(uint8_t, uint8_t, void*, uint8_t*))
 		{
-			uint16_t lut[REDUCED_LUT_SIZE];
-			FillRLUT(lut);
-			uint8_t buffer[255], bufferOrig[255], out[255];
+			uint8_t buffer[255], bufferOrig[255];
 			wchar_t message[200];
+			for (int r = 0; r < repeats; r++)
+			{
+				for (auto i : nk)
+				{
+					size_t n = i.first, k = i.second;
+					uint8_t t = (uint8_t)((n - k) / 2); //Error capacity
+					FillCoeffs(Coefs, (uint8_t)(n - k), LUT);
+					std::vector<uint8_t> errnom = { (uint8_t)(t / 2), (uint8_t)(t - 1), t };
+					std::vector<uint8_t> fillval = { 0, 0xff };
 
+					for (auto v : fillval)
+					{
+						//Test with all zeros
+						memset(buffer, v, k);
+						int enc = EncodeData((uint8_t)n, (uint8_t)k, LUT, Coefs, buffer);
+						Assert::AreEqual(0, enc, L"Encoder returned wrong result");
+						memcpy(bufferOrig, buffer, n);
+
+						memcpy(buffer, bufferOrig, n);
+						int dec = DecodeData((uint8_t)n, (uint8_t)k, LUT, buffer);
+						Assert::AreEqual(0, dec, L"Decoder returned wrong result");
+						Assert::AreEqual(0, memcmp(buffer, bufferOrig, k), L"Data shouldn't have been changed");
+						for (auto e : errnom) //Introduce correctable error patterns
+						{
+							memcpy(buffer, bufferOrig, n);
+							IntroduceSingleError((uint8_t)n, buffer);
+							dec = DecodeData((uint8_t)n, (uint8_t)k, LUT, buffer);
+							swprintf_s(message, L"Decoder returned wrong result (single error)");
+							Assert::AreEqual(1, dec, message);
+							int comp = memcmp(buffer, bufferOrig, k);
+							swprintf_s(message, L"Data was not corrected (single error)");
+							Assert::AreEqual(0, comp, message);
+
+							memcpy(buffer, bufferOrig, n);
+							IntroduceDistributedErrors(e, (uint8_t)n, buffer);
+							dec = DecodeData((uint8_t)n, (uint8_t)k, LUT, buffer);
+							swprintf_s(message, L"Decoder returned wrong result (random %d errors)", e);
+							Assert::AreEqual((int)e, dec, message);
+							comp = memcmp(buffer, bufferOrig, k);
+							swprintf_s(message, L"Data was not corrected (random %d errors)", e);
+							Assert::AreEqual(0, comp, message);
+
+							memcpy(buffer, bufferOrig, n);
+							IntroduceSequencedErrors(e, (uint8_t)n, buffer);
+							dec = DecodeData((uint8_t)n, (uint8_t)k, LUT, buffer);
+							swprintf_s(message, L"Decoder returned wrong result (sequenced %d errors)", e);
+							Assert::AreEqual((int)e, dec, message);
+							comp = memcmp(buffer, bufferOrig, k);
+							swprintf_s(message, L"Data was not corrected (sequenced %d errors)", e);
+							Assert::AreEqual(0, comp, message);
+						}
+					}
+				}
+			}
+		}
+		void TestSingleByteData(void* Coefs, void* LUT, void (*FillCoeffs)(void*, uint8_t, void*),
+			int (*EncodeData)(uint8_t, uint8_t, void*, void*, uint8_t*),
+			int (*DecodeData)(uint8_t, uint8_t, void*, uint8_t*))
+		{
+			uint8_t buffer[255], bufferOrig[255];
+			wchar_t message[200];
+			wchar_t positionInfo[50];
 			for (auto i : nk)
 			{
 				size_t n = i.first, k = i.second;
 				uint8_t t = (uint8_t)((n - k) / 2); //Error capacity
-				uint16_t* coefs = new uint16_t[COEFS_SIZE_RLUT(n, k)]; //Minimum size
-				FillCoefficents(coefs, (uint8_t)(n - k), lut);
-				uint16_t* scratch = new uint16_t[SCRATCH_SIZE_RLUT(n, k)];
+				FillCoeffs(Coefs, (uint8_t)(n - k), LUT);
+				std::vector<uint8_t> sdpos = { 0, (uint8_t)(k / 2), (uint8_t)(k - 1) };
 				std::vector<uint8_t> errnom = { (uint8_t)(t / 2), (uint8_t)(t - 1), t };
-				std::vector<uint8_t> fillval = { 0, 0xff };
 
-				for (auto v : fillval)
+				for (auto v : sdval)
 				{
-					//Test with all zeros
-					memset(buffer, v, k);
-					int enc = Encode((uint8_t)n, (uint8_t)k, lut, coefs, buffer, out);
-					Assert::AreEqual(0, enc, L"Encoder returned wrong result");
-					memcpy(bufferOrig, out, n);
+					for (auto p : sdpos)
+					{
+						memset(buffer, 0, k); //Test with k-1 zeros
+						buffer[p] = v; //Different values at different positions
+						swprintf_s(positionInfo, L"n %d, k %d, val %d, pos %d", (uint8_t)n, (uint8_t)k, v, p);
+
+						int enc = EncodeData((uint8_t)n, (uint8_t)k, LUT, Coefs, buffer);
+						swprintf_s(message, L"Encoder returned wrong result. %s", positionInfo);
+						Assert::AreEqual(0, enc, message);
+						memcpy(bufferOrig, buffer, n);
+
+						memcpy(buffer, bufferOrig, n);
+						int dec = DecodeData((uint8_t)n, (uint8_t)k, LUT, buffer);
+						swprintf_s(message, L"Decoder returned wrong result. %s", positionInfo);
+						Assert::AreEqual(0, dec, message);
+						int comp = memcmp(buffer, bufferOrig, k);
+						swprintf_s(message, L"Data shouldn't have been changed. %s", positionInfo);
+						Assert::AreEqual(0, comp, message);
+
+						for (auto e : errnom) //Introduce correctable error patterns
+						{
+							memcpy(buffer, bufferOrig, n);
+							IntroduceSingleError((uint8_t)n, buffer);
+							dec = DecodeData((uint8_t)n, (uint8_t)k, LUT, buffer);
+							swprintf_s(message, L"Decoder returned wrong result (single error). %s", positionInfo);
+							Assert::AreEqual(1, dec, message);
+							comp = memcmp(buffer, bufferOrig, k);
+							swprintf_s(message, L"Data was not corrected (single error). %s", positionInfo);
+							Assert::AreEqual(0, comp, message);
+
+							memcpy(buffer, bufferOrig, n);
+							IntroduceDistributedErrors(e, (uint8_t)n, buffer);
+							dec = DecodeData((uint8_t)n, (uint8_t)k, LUT, buffer);
+							swprintf_s(message, L"Decoder returned wrong result (random %d errors). %s", e, positionInfo);
+							Assert::AreEqual((int)e, dec, message);
+							comp = memcmp(buffer, bufferOrig, k);
+							swprintf_s(message, L"Data was not corrected (random %d errors). %s", e, positionInfo);
+							Assert::AreEqual(0, comp, message);
+
+							memcpy(buffer, bufferOrig, n);
+							IntroduceSequencedErrors(e, (uint8_t)n, buffer);
+							dec = DecodeData((uint8_t)n, (uint8_t)k, LUT, buffer);
+							swprintf_s(message, L"Decoder returned wrong result (sequenced %d errors). %s", e, positionInfo);
+							Assert::AreEqual((int)e, dec, message);
+							comp = memcmp(buffer, bufferOrig, k);
+							swprintf_s(message, L"Data was not corrected (sequenced %d errors). %s", e, positionInfo);
+							Assert::AreEqual(0, comp, message);
+						}
+					}
+				}
+			}
+		}
+		void TestRandomData(void* Coefs, void* LUT, void (*FillCoeffs)(void*, uint8_t, void*),
+			int (*EncodeData)(uint8_t, uint8_t, void*, void*, uint8_t*),
+			int (*DecodeData)(uint8_t, uint8_t, void*, uint8_t*))
+		{
+			uint8_t buffer[255], bufferOrig[255];
+			wchar_t message[200];
+			wchar_t positionInfo[50];
+			for (int r = 0; r < repeats; r++)
+			{
+				for (auto i : nk)
+				{
+					size_t n = i.first, k = i.second;
+					uint8_t t = (uint8_t)((n - k) / 2); //Error capacity
+
+					FillCoeffs(Coefs, (uint8_t)(n - k), LUT);
+					std::vector<uint8_t> errnom = { (uint8_t)(t / 2), (uint8_t)(t - 1), t };
+
+					for (int p = 0; p < k; p++)
+						buffer[p] = (uint8_t)NextRand();
+					swprintf_s(positionInfo, L"n %d, k %d", (uint8_t)n, (uint8_t)k);
+
+					int enc = EncodeData((uint8_t)n, (uint8_t)k, LUT, Coefs, buffer);
+					swprintf_s(message, L"Encoder returned wrong result. %s", positionInfo);
+					Assert::AreEqual(0, enc, message);
+					memcpy(bufferOrig, buffer, n);
 
 					memcpy(buffer, bufferOrig, n);
-					int dec = Decode((uint8_t)n, (uint8_t)k, lut, scratch, buffer, out);
-					Assert::AreEqual(0, dec, L"Decoder returned wrong result");
-					Assert::AreEqual(0, memcmp(out, bufferOrig, k), L"Data shouldn't have been changed");
+					int dec = DecodeData((uint8_t)n, (uint8_t)k, LUT, buffer);
+					swprintf_s(message, L"Decoder returned wrong result. %s", positionInfo);
+					Assert::AreEqual(0, dec, message);
+					int comp = memcmp(buffer, bufferOrig, k);
+					swprintf_s(message, L"Data shouldn't have been changed. %s", positionInfo);
+					Assert::AreEqual(0, comp, message);
+
 					for (auto e : errnom) //Introduce correctable error patterns
 					{
 						memcpy(buffer, bufferOrig, n);
 						IntroduceSingleError((uint8_t)n, buffer);
-						dec = Decode((uint8_t)n, (uint8_t)k, lut, scratch, buffer, out);
-						swprintf_s(message, L"Decoder returned wrong result (single error)");
+						dec = DecodeData((uint8_t)n, (uint8_t)k, LUT, buffer);
+						swprintf_s(message, L"Decoder returned wrong result (single error). %s", positionInfo);
 						Assert::AreEqual(1, dec, message);
-						int comp = memcmp(out, bufferOrig, k);
-						swprintf_s(message, L"Data was not corrected (single error)");
+						comp = memcmp(buffer, bufferOrig, k);
+						swprintf_s(message, L"Data was not corrected (single error). %s", positionInfo);
 						Assert::AreEqual(0, comp, message);
 
 						memcpy(buffer, bufferOrig, n);
 						IntroduceDistributedErrors(e, (uint8_t)n, buffer);
-						dec = Decode((uint8_t)n, (uint8_t)k, lut, scratch, buffer, out);
-						swprintf_s(message, L"Decoder returned wrong result (random %d errors)", e);
+						dec = DecodeData((uint8_t)n, (uint8_t)k, LUT, buffer);
+						swprintf_s(message, L"Decoder returned wrong result (random %d errors). %s", e, positionInfo);
 						Assert::AreEqual((int)e, dec, message);
-						comp = memcmp(out, bufferOrig, k);
-						swprintf_s(message, L"Data was not corrected (random %d errors)", e);
+						comp = memcmp(buffer, bufferOrig, k);
+						swprintf_s(message, L"Data was not corrected (random %d errors). %s", e, positionInfo);
 						Assert::AreEqual(0, comp, message);
 
 						memcpy(buffer, bufferOrig, n);
-						IntroduceSequencedErrors(e, (uint8_t)n, buffer);
-						dec = Decode((uint8_t)n, (uint8_t)k, lut, scratch, buffer, out);
-						swprintf_s(message, L"Decoder returned wrong result (sequenced %d errors)", e);
+						IntroduceSequencedErrors(e, (uint8_t)n, buffer); 
+						dec = DecodeData((uint8_t)n, (uint8_t)k, LUT, buffer);
+						swprintf_s(message, L"Decoder returned wrong result (sequenced %d errors). %s", e, positionInfo);
 						Assert::AreEqual((int)e, dec, message);
-						comp = memcmp(out, bufferOrig, k);
-						swprintf_s(message, L"Data was not corrected (sequenced %d errors)", e);
+						comp = memcmp(buffer, bufferOrig, k);
+						swprintf_s(message, L"Data was not corrected (sequenced %d errors). %s", e, positionInfo);
 						Assert::AreEqual(0, comp, message);
 					}
 				}
-
-				delete[] coefs, scratch;
 			}
+		}
+		TEST_METHOD(TestAllOnesOrZerosALU)
+		{
+			uint8_t lut[REDUCED_LUT_SIZE];
+			uint8_t coefs[COEFS_SIZE_RLUT];
+			FillRLUT(lut);
+			TestAllOnesOrZeros(coefs, lut, &FillCoefficents, &Encode, &Decode);
 		}
 
 		TEST_METHOD(TestSingleByteDataALU)
 		{
-			uint16_t lut[REDUCED_LUT_SIZE];
+			uint8_t lut[REDUCED_LUT_SIZE];
+			uint8_t coefs[COEFS_SIZE_RLUT];
 			FillRLUT(lut);
-			uint8_t buffer[255], bufferOrig[255], out[255];
-			wchar_t message[200];
-			wchar_t positionInfo[50];
-			for (auto i : nk)
-			{
-				size_t n = i.first, k = i.second;
-				uint8_t t = (uint8_t)((n - k) / 2); //Error capacity
-
-				uint16_t* coefs = new uint16_t[COEFS_SIZE_RLUT(n, k)]; //Minimum size
-				FillCoefficents(coefs, (uint8_t)(n - k), lut);
-				uint16_t* scratch = new uint16_t[SCRATCH_SIZE_RLUT(n, k)];
-				std::vector<uint8_t> sdpos = { 0, (uint8_t)(k / 2), (uint8_t)(k - 1) };
-				std::vector<uint8_t> errnom = { (uint8_t)(t / 2), (uint8_t)(t - 1), t };
-
-				for (auto v : sdval)
-				{
-					for (auto p : sdpos)
-					{
-						memset(buffer, 0, k); //Test with k-1 zeros
-						buffer[p] = v; //Different values at different positions
-						swprintf_s(positionInfo, L"n %d, k %d, val %d, pos %d", (uint8_t)n, (uint8_t)k, v, p);
-
-						int enc = Encode((uint8_t)n, (uint8_t)k, lut, coefs, buffer, out);
-						swprintf_s(message, L"Encoder returned wrong result. %s", positionInfo);
-						Assert::AreEqual(0, enc, message);
-						memcpy(bufferOrig, out, n);
-
-						memcpy(buffer, bufferOrig, n);
-						int dec = Decode((uint8_t)n, (uint8_t)k, lut, scratch, buffer, out);
-						swprintf_s(message, L"Decoder returned wrong result. %s", positionInfo);
-						Assert::AreEqual(0, dec, message);
-						int comp = memcmp(out, bufferOrig, k);
-						swprintf_s(message, L"Data shouldn't have been changed. %s", positionInfo);
-						Assert::AreEqual(0, comp, message);
-
-						for (auto e : errnom) //Introduce correctable error patterns
-						{
-							memcpy(buffer, bufferOrig, n);
-							IntroduceSingleError((uint8_t)n, buffer);
-							dec = Decode((uint8_t)n, (uint8_t)k, lut, scratch, buffer, out);
-							swprintf_s(message, L"Decoder returned wrong result (single error). %s", positionInfo);
-							Assert::AreEqual(1, dec, message);
-							comp = memcmp(out, bufferOrig, k);
-							swprintf_s(message, L"Data was not corrected (single error). %s", positionInfo);
-							Assert::AreEqual(0, comp, message);
-
-							memcpy(buffer, bufferOrig, n);
-							IntroduceDistributedErrors(e, (uint8_t)n, buffer);
-							dec = Decode((uint8_t)n, (uint8_t)k, lut, scratch, buffer, out);
-							swprintf_s(message, L"Decoder returned wrong result (random %d errors). %s", e, positionInfo);
-							Assert::AreEqual((int)e, dec, message);
-							comp = memcmp(out, bufferOrig, k);
-							swprintf_s(message, L"Data was not corrected (random %d errors). %s", e, positionInfo);
-							Assert::AreEqual(0, comp, message);
-
-							memcpy(buffer, bufferOrig, n);
-							IntroduceSequencedErrors(e, (uint8_t)n, buffer);
-							dec = Decode((uint8_t)n, (uint8_t)k, lut, scratch, buffer, out);
-							swprintf_s(message, L"Decoder returned wrong result (sequenced %d errors). %s", e, positionInfo);
-							Assert::AreEqual((int)e, dec, message);
-							comp = memcmp(out, bufferOrig, k);
-							swprintf_s(message, L"Data was not corrected (sequenced %d errors). %s", e, positionInfo);
-							Assert::AreEqual(0, comp, message);
-						}
-					}
-				}
-				delete[] coefs, scratch;
-			}
+			TestSingleByteData(coefs, lut, &FillCoefficents, &Encode, &Decode);
 		}		
 
 		TEST_METHOD(TestRandomDataALU)
 		{
-			uint16_t lut[REDUCED_LUT_SIZE];
+			uint8_t lut[REDUCED_LUT_SIZE];
+			uint8_t coefs[COEFS_SIZE_RLUT];
 			FillRLUT(lut);
-			uint8_t buffer[255], bufferOrig[255], out[255];
-			wchar_t message[200];
-			wchar_t positionInfo[50];
-			for (auto i : nk)
-			{
-				size_t n = i.first, k = i.second;
-				uint8_t t = (uint8_t)((n - k) / 2); //Error capacity
-
-				uint16_t* coefs = new uint16_t[COEFS_SIZE_RLUT(n, k)]; //Minimum size
-				FillCoefficents(coefs, (uint8_t)(n - k), lut);
-				uint16_t* scratch = new uint16_t[SCRATCH_SIZE_RLUT(n, k)];
-				std::vector<uint8_t> errnom = { (uint8_t)(t / 2), (uint8_t)(t - 1), t };
-
-				for (int p = 0; p < k; p++)
-					buffer[p] = (uint8_t)NextRand();
-				swprintf_s(positionInfo, L"n %d, k %d", (uint8_t)n, (uint8_t)k);
-
-				int enc = Encode((uint8_t)n, (uint8_t)k, lut, coefs, buffer, out);
-				swprintf_s(message, L"Encoder returned wrong result. %s", positionInfo);
-				Assert::AreEqual(0, enc, message);
-				memcpy(bufferOrig, out, n);
-
-				memcpy(buffer, bufferOrig, n);
-				int dec = Decode((uint8_t)n, (uint8_t)k, lut, scratch, buffer, out);
-				swprintf_s(message, L"Decoder returned wrong result. %s", positionInfo);
-				Assert::AreEqual(0, dec, message);
-				int comp = memcmp(out, bufferOrig, k);
-				swprintf_s(message, L"Data shouldn't have been changed. %s", positionInfo);
-				Assert::AreEqual(0, comp, message);
-
-				for (auto e : errnom) //Introduce correctable error patterns
-				{
-					memcpy(buffer, bufferOrig, n);
-					IntroduceSingleError((uint8_t)n, buffer);
-					dec = Decode((uint8_t)n, (uint8_t)k, lut, scratch, buffer, out);
-					swprintf_s(message, L"Decoder returned wrong result (single error). %s", positionInfo);
-					Assert::AreEqual(1, dec, message);
-					comp = memcmp(out, bufferOrig, k);
-					swprintf_s(message, L"Data was not corrected (single error). %s", positionInfo);
-					Assert::AreEqual(0, comp, message);
-
-					memcpy(buffer, bufferOrig, n);
-					IntroduceDistributedErrors(e, (uint8_t)n, buffer);
-					dec = Decode((uint8_t)n, (uint8_t)k, lut, scratch, buffer, out);
-					swprintf_s(message, L"Decoder returned wrong result (random %d errors). %s", e, positionInfo);
-					Assert::AreEqual((int)e, dec, message);
-					comp = memcmp(out, bufferOrig, k);
-					swprintf_s(message, L"Data was not corrected (random %d errors). %s", e, positionInfo);
-					Assert::AreEqual(0, comp, message);
-
-					memcpy(buffer, bufferOrig, n);
-					IntroduceSequencedErrors(e, (uint8_t)n, buffer);
-					dec = Decode((uint8_t)n, (uint8_t)k, lut, scratch, buffer, out);
-					swprintf_s(message, L"Decoder returned wrong result (sequenced %d errors). %s", e, positionInfo);
-					Assert::AreEqual((int)e, dec, message);
-					comp = memcmp(out, bufferOrig, k);
-					swprintf_s(message, L"Data was not corrected (sequenced %d errors). %s", e, positionInfo);
-					Assert::AreEqual(0, comp, message);
-				}
-					
-				delete[] coefs, scratch;
-			}
+			TestRandomData(coefs, lut, &FillCoefficents, &Encode, &Decode);
 		}
 
-		uint8_t flut[FULL_LUT_SIZE];
+		//TEST_METHOD(TestAllOnesOrZerosALUFL)
+		//{
+		//	uint8_t* flut = new uint8_t[FULL_LUT_SIZE];
+		//	FillFLUT(flut);
+		//	uint8_t coefs[COEFS_SIZE_FLUT];
+		//	TestAllOnesOrZeros(coefs, flut, &FillCoefficentsFL, &EncodeFL, &DecodeFL);
+		//	delete[] flut;
+		//}
 
-		TEST_METHOD(TestAllOnesOrZerosALUFL)
+		//TEST_METHOD(TestSingleByteDataALUFL)
+		//{
+		//	uint8_t* flut = new uint8_t[FULL_LUT_SIZE];
+		//	FillFLUT(flut);
+		//	uint8_t coefs[COEFS_SIZE_FLUT];
+		//	TestSingleByteData(coefs, flut, &FillCoefficentsFL, &EncodeFL, &DecodeFL);
+		//	delete[] flut;
+		//}
+		//
+		//TEST_METHOD(TestRandomDataALUFL)
+		//{
+		//	uint8_t* flut = new uint8_t[FULL_LUT_SIZE];
+		//	FillFLUT(flut);
+		//	uint8_t coefs[COEFS_SIZE_FLUT];
+		//	TestRandomData(coefs, flut, &FillCoefficentsFL, &EncodeFL, &DecodeFL);
+		//	delete[] flut;
+		//}
+		TEST_METHOD(TestAllOnesOrZerosSSE4)
 		{
-			FillFLUT(flut);
-			uint8_t buffer[255], bufferOrig[255], out[255];
-			wchar_t message[200];
-
-			for (auto i : nk)
-			{
-				size_t n = i.first, k = i.second;
-				uint8_t t = (uint8_t)((n - k) / 2); //Error capacity
-				uint8_t* coefs = new uint8_t[COEFS_SIZE_FLUT(n, k)]; //Minimum size
-				FillCoefficentsFL(coefs, (uint8_t)(n - k), flut);
-				uint8_t* scratch = new uint8_t[SCRATCH_SIZE_FLUT(n, k)];
-				std::vector<uint8_t> errnom = { (uint8_t)(t / 2), (uint8_t)(t - 1), t };
-				std::vector<uint8_t> fillval = { 0, 0xff };
-
-				for (auto v : fillval)
-				{
-					//Test with all zeros
-					memset(buffer, v, k);
-					int enc = EncodeFL((uint8_t)n, (uint8_t)k, flut, coefs, buffer, out);
-					Assert::AreEqual(0, enc, L"Encoder returned wrong result");
-					memcpy(bufferOrig, out, n);
-
-					memcpy(buffer, bufferOrig, n);
-					int dec = DecodeFL((uint8_t)n, (uint8_t)k, flut, scratch, buffer, out);
-					Assert::AreEqual(0, dec, L"Decoder returned wrong result");
-					Assert::AreEqual(0, memcmp(out, bufferOrig, k), L"Data shouldn't have been changed");
-					for (auto e : errnom) //Introduce correctable error patterns
-					{
-						memcpy(buffer, bufferOrig, n);
-						IntroduceSingleError((uint8_t)n, buffer);
-						dec = DecodeFL((uint8_t)n, (uint8_t)k, flut, scratch, buffer, out);
-						swprintf_s(message, L"Decoder returned wrong result (single error)");
-						Assert::AreEqual(1, dec, message);
-						int comp = memcmp(out, bufferOrig, k);
-						swprintf_s(message, L"Data was not corrected (single error)");
-						Assert::AreEqual(0, comp, message);
-
-						memcpy(buffer, bufferOrig, n);
-						IntroduceDistributedErrors(e, (uint8_t)n, buffer);
-						dec = DecodeFL((uint8_t)n, (uint8_t)k, flut, scratch, buffer, out);
-						swprintf_s(message, L"Decoder returned wrong result (random %d errors)", e);
-						Assert::AreEqual((int)e, dec, message);
-						comp = memcmp(out, bufferOrig, k);
-						swprintf_s(message, L"Data was not corrected (random %d errors)", e);
-						Assert::AreEqual(0, comp, message);
-
-						memcpy(buffer, bufferOrig, n);
-						IntroduceSequencedErrors(e, (uint8_t)n, buffer);
-						dec = DecodeFL((uint8_t)n, (uint8_t)k, flut, scratch, buffer, out);
-						swprintf_s(message, L"Decoder returned wrong result (sequenced %d errors)", e);
-						Assert::AreEqual((int)e, dec, message);
-						comp = memcmp(out, bufferOrig, k);
-						swprintf_s(message, L"Data was not corrected (sequenced %d errors)", e);
-						Assert::AreEqual(0, comp, message);
-					}
-				}
-
-				delete[] coefs, scratch;
-			}
+			uint8_t* luts = new uint8_t[SSE_LUT_SIZE];
+			FillSSELUT(luts);
+			uint8_t coefs[COEFS_SIZE_SSE];
+			TestAllOnesOrZeros(coefs, luts, &FillCoefficentsSSE, &EncodeSSSE3, &DecodeSSSE3);
+			delete[] luts;
 		}
 
-		TEST_METHOD(TestSingleByteDataALUFL)
+		TEST_METHOD(TestSingleByteDataSSE4)
 		{
-			FillFLUT(flut);
-			uint8_t buffer[255], bufferOrig[255], out[255];
-			wchar_t message[200];
-			wchar_t positionInfo[50];
-			for (auto i : nk)
-			{
-				size_t n = i.first, k = i.second;
-				uint8_t t = (uint8_t)((n - k) / 2); //Error capacity
-
-				uint8_t* coefs = new uint8_t[COEFS_SIZE_FLUT(n, k)]; //Minimum size
-				FillCoefficentsFL(coefs, (uint8_t)(n - k), flut);
-				uint8_t* scratch = new uint8_t[SCRATCH_SIZE_FLUT(n, k)];
-				std::vector<uint8_t> sdpos = { 0, (uint8_t)(k / 2), (uint8_t)(k - 1) };
-				std::vector<uint8_t> errnom = { (uint8_t)(t / 2), (uint8_t)(t - 1), t };
-
-				for (auto v : sdval)
-				{
-					for (auto p : sdpos)
-					{
-						memset(buffer, 0, k); //Test with k-1 zeros
-						buffer[p] = v; //Different values at different positions
-						swprintf_s(positionInfo, L"n %d, k %d, val %d, pos %d", (uint8_t)n, (uint8_t)k, v, p);
-
-						int enc = EncodeFL((uint8_t)n, (uint8_t)k, flut, coefs, buffer, out);
-						swprintf_s(message, L"Encoder returned wrong result. %s", positionInfo);
-						Assert::AreEqual(0, enc, message);
-						memcpy(bufferOrig, out, n);
-
-						memcpy(buffer, bufferOrig, n);
-						int dec = DecodeFL((uint8_t)n, (uint8_t)k, flut, scratch, buffer, out);
-						swprintf_s(message, L"Decoder returned wrong result. %s", positionInfo);
-						Assert::AreEqual(0, dec, message);
-						int comp = memcmp(out, bufferOrig, k);
-						swprintf_s(message, L"Data shouldn't have been changed. %s", positionInfo);
-						Assert::AreEqual(0, comp, message);
-
-						for (auto e : errnom) //Introduce correctable error patterns
-						{
-							memcpy(buffer, bufferOrig, n);
-							IntroduceSingleError((uint8_t)n, buffer);
-							dec = DecodeFL((uint8_t)n, (uint8_t)k, flut, scratch, buffer, out);
-							swprintf_s(message, L"Decoder returned wrong result (single error). %s", positionInfo);
-							Assert::AreEqual(1, dec, message);
-							comp = memcmp(out, bufferOrig, k);
-							swprintf_s(message, L"Data was not corrected (single error). %s", positionInfo);
-							Assert::AreEqual(0, comp, message);
-
-							memcpy(buffer, bufferOrig, n);
-							IntroduceDistributedErrors(e, (uint8_t)n, buffer);
-							dec = DecodeFL((uint8_t)n, (uint8_t)k, flut, scratch, buffer, out);
-							swprintf_s(message, L"Decoder returned wrong result (random %d errors). %s", e, positionInfo);
-							Assert::AreEqual((int)e, dec, message);
-							comp = memcmp(out, bufferOrig, k);
-							swprintf_s(message, L"Data was not corrected (random %d errors). %s", e, positionInfo);
-							Assert::AreEqual(0, comp, message);
-
-							memcpy(buffer, bufferOrig, n);
-							IntroduceSequencedErrors(e, (uint8_t)n, buffer);
-							dec = DecodeFL((uint8_t)n, (uint8_t)k, flut, scratch, buffer, out);
-							swprintf_s(message, L"Decoder returned wrong result (sequenced %d errors). %s", e, positionInfo);
-							Assert::AreEqual((int)e, dec, message);
-							comp = memcmp(out, bufferOrig, k);
-							swprintf_s(message, L"Data was not corrected (sequenced %d errors). %s", e, positionInfo);
-							Assert::AreEqual(0, comp, message);
-						}
-					}
-				}
-				delete[] coefs, scratch;
-			}
+			uint8_t* luts = new uint8_t[SSE_LUT_SIZE];
+			FillSSELUT(luts);
+			uint8_t coefs[COEFS_SIZE_SSE];
+			TestSingleByteData(coefs, luts, &FillCoefficentsSSE, &EncodeSSSE3, &DecodeSSSE3);
+			delete[] luts;
 		}
 		
-		TEST_METHOD(TestRandomDataALUFL)
+		TEST_METHOD(TestRandomDataSSE4)
 		{
-			FillFLUT(flut);
-			uint8_t buffer[255], bufferOrig[255], out[255];
-			wchar_t message[200];
-			wchar_t positionInfo[50];
-			for (auto i : nk)
-			{
-				size_t n = i.first, k = i.second;
-				uint8_t t = (uint8_t)((n - k) / 2); //Error capacity
-
-				uint8_t* coefs = new uint8_t[COEFS_SIZE_FLUT(n, k)]; //Minimum size
-				FillCoefficentsFL(coefs, (uint8_t)(n - k), flut);
-				uint8_t* scratch = new uint8_t[SCRATCH_SIZE_FLUT(n, k)];
-				std::vector<uint8_t> errnom = { (uint8_t)(t / 2), (uint8_t)(t - 1), t };
-
-				for (int p = 0; p < k; p++)
-					buffer[p] = (uint8_t)NextRand();
-				swprintf_s(positionInfo, L"n %d, k %d", (uint8_t)n, (uint8_t)k);
-
-				int enc = EncodeFL((uint8_t)n, (uint8_t)k, flut, coefs, buffer, out);
-				swprintf_s(message, L"Encoder returned wrong result. %s", positionInfo);
-				Assert::AreEqual(0, enc, message);
-				memcpy(bufferOrig, out, n);
-
-				memcpy(buffer, bufferOrig, n);
-				int dec = DecodeFL((uint8_t)n, (uint8_t)k, flut, scratch, buffer, out);
-				swprintf_s(message, L"Decoder returned wrong result. %s", positionInfo);
-				Assert::AreEqual(0, dec, message);
-				int comp = memcmp(out, bufferOrig, k);
-				swprintf_s(message, L"Data shouldn't have been changed. %s", positionInfo);
-				Assert::AreEqual(0, comp, message);
-
-				for (auto e : errnom) //Introduce correctable error patterns
-				{
-					memcpy(buffer, bufferOrig, n);
-					IntroduceSingleError((uint8_t)n, buffer);
-					dec = DecodeFL((uint8_t)n, (uint8_t)k, flut, scratch, buffer, out);
-					swprintf_s(message, L"Decoder returned wrong result (single error). %s", positionInfo);
-					Assert::AreEqual(1, dec, message);
-					comp = memcmp(out, bufferOrig, k);
-					swprintf_s(message, L"Data was not corrected (single error). %s", positionInfo);
-					Assert::AreEqual(0, comp, message);
-
-					memcpy(buffer, bufferOrig, n);
-					IntroduceDistributedErrors(e, (uint8_t)n, buffer);
-					dec = DecodeFL((uint8_t)n, (uint8_t)k, flut, scratch, buffer, out);
-					swprintf_s(message, L"Decoder returned wrong result (random %d errors). %s", e, positionInfo);
-					Assert::AreEqual((int)e, dec, message);
-					comp = memcmp(out, bufferOrig, k);
-					swprintf_s(message, L"Data was not corrected (random %d errors). %s", e, positionInfo);
-					Assert::AreEqual(0, comp, message);
-
-					memcpy(buffer, bufferOrig, n);
-					IntroduceSequencedErrors(e, (uint8_t)n, buffer);
-					dec = DecodeFL((uint8_t)n, (uint8_t)k, flut, scratch, buffer, out);
-					swprintf_s(message, L"Decoder returned wrong result (sequenced %d errors). %s", e, positionInfo);
-					Assert::AreEqual((int)e, dec, message);
-					comp = memcmp(out, bufferOrig, k);
-					swprintf_s(message, L"Data was not corrected (sequenced %d errors). %s", e, positionInfo);
-					Assert::AreEqual(0, comp, message);
-				}
-
-				delete[] coefs, scratch;
-			}
+			uint8_t* luts = new uint8_t[SSE_LUT_SIZE];
+			FillSSELUT(luts);
+			uint8_t coefs[COEFS_SIZE_SSE];
+			TestRandomData(coefs, luts, &FillCoefficentsSSE, &EncodeSSSE3, &DecodeSSSE3);
+			delete[] luts;
 		}
 	};
 }

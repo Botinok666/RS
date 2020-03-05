@@ -138,6 +138,8 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <UndefinePreprocessorDefinitions>
+      </UndefinePreprocessorDefinitions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -147,15 +149,17 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="rs-jp.c" />
     <ClCompile Include="RS.cpp" />
     <ClCompile Include="rsaluflut.c" />
-    <ClCompile Include="rsalurlut.c" />
-    <ClCompile Include="rssse4.c" />
+    <ClCompile Include="rsalu.c" />
+    <ClCompile Include="rsssse3.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="rs-jp.h" />
     <ClInclude Include="rsaluflut.h" />
-    <ClInclude Include="rsalurlut.h" />
-    <ClInclude Include="rssse4.h" />
+    <ClInclude Include="rsalu.h" />
+    <ClInclude Include="rsssse3.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

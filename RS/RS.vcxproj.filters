@@ -18,24 +18,30 @@
     <ClCompile Include="RS.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="rsalurlut.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="rsaluflut.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="rssse4.c">
+    <ClCompile Include="rs-jp.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="rsalu.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="rsssse3.c">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="rsalurlut.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="rsaluflut.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="rssse4.h">
+    <ClInclude Include="rs-jp.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="rsalu.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="rsssse3.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

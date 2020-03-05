@@ -62,10 +62,10 @@ void FillFLUT(uint8_t* lut) {
         mul = GFMul2(2, mul);
     }
 }
-void FillCoefficentsFL(uint8_t* coefs, uint8_t count, uint8_t* lut)
+void FillCoefficentsFL(void* Coefs, uint8_t count, void* LUT)
 {
     if (count < 2) return;
-
+    uint8_t* coefs = (uint8_t*)Coefs, * lut = (uint8_t*)LUT;
     coefs[count] = 1;
     coefs[count - 1] = 1;
     union u16u8 idx;
@@ -82,30 +82,32 @@ void FillCoefficentsFL(uint8_t* coefs, uint8_t count, uint8_t* lut)
         coefs[count] = lut[idx.u16];
     }
 }
-int __cdecl EncodeFL(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* coefs, uint8_t* in, uint8_t* out)
+int __cdecl EncodeFL(uint8_t n, uint8_t k, void* LUT, void* Coefs, uint8_t* buffer)
 {
     int length = n - k + 1;
     if (length < 3 || n < 4)
         return -1;
     union u16u8 idx;
-    memcpy_s(out, k, in, k);
-    memset(out + k, 0, n - k);
+    uint8_t btemp[255]; 
+    uint8_t* lut = (uint8_t*)LUT, * coefs = (uint8_t*)Coefs + 1;
+    memcpy_s(btemp, k, buffer, k);
+    memset(btemp + k, 0, n - k);
     //Remainder calculation: long division
-    uint8_t* oj = out;
+    uint8_t* oj = btemp;
     for (int j = 0; j < k; j++)
     {
         idx.u8.b = *oj++; //mul
-        uint8_t* ol = oj, * cl = coefs + 1;
+        uint8_t* ol = oj, * cl = coefs;
         for (int l = 1; l < length; l++)
         {
             idx.u8.a = *cl++;
             *ol++ ^= lut[idx.u16];
         }
     }
-    memcpy_s(out, k, in, k);
+    memcpy_s(buffer + k, n - k, btemp + k, n - k);
     return 0;
 }
-int __cdecl DecodeFL(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* scratch, uint8_t* in, uint8_t* out)
+int __cdecl DecodeFL(uint8_t n, uint8_t k, void* LUT, uint8_t* buffer)
 {
     uint8_t scount = n - k;
     if (scount < 2 || n < 4)
@@ -113,10 +115,8 @@ int __cdecl DecodeFL(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* scratch, uint8
     union u16u8 idx;
     uint8_t t = scount >> 1; //Error capacity
 
-    uint8_t* lambda = scratch;
-    uint8_t* omega = lambda + scount;
-    uint8_t* syn = omega + t + 1;
-
+    uint8_t lambda[MAX_T_ALUF], omega[MAX_T_ALUF], syn[MAX_T_ALUF];
+    uint8_t* lut = (uint8_t*)LUT;
     /*Syndrome calculation: substitution method
     Buffer view: B_0, B_1, ...
     Polynomial view: B(x) = B_0*x^n-1, B_1*x^n-2, ...
@@ -154,20 +154,21 @@ int __cdecl DecodeFL(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* scratch, uint8
     for (int j = 0; j < scount; j++)
     {
         uint8_t s = 0;
+        uint8_t* in = buffer;
         idx.u8.b = GFIdxFast2(j, lut);
         for (int m = 0; m < n - 1; m++)
         {
-            idx.u8.a = in[m] ^ s;
+            idx.u8.a = *in++ ^ s;
             s = lut[idx.u16];
         }
-        s ^= in[n - 1];
+        s ^= *in;
         hasErrors |= s;
         syn[j] = s;
     }
     if (!hasErrors) return 0;
 
     //Lambda calculation: Berlekamp's method
-    uint8_t* b = syn + scount, *Lm = b + scount; //4n-3k+2 + 2n-2k+2
+    uint8_t b[MAX_T_ALUF], Lm[MAX_T_ALUF];
     //Set initial value of b and lambda to 1
     memset(b + 1, 0, (size_t)scount - 1);
     b[0] = 1;
@@ -259,8 +260,8 @@ int __cdecl DecodeFL(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* scratch, uint8
     }
     //scratch: lambda, omega
 
-    uint8_t* xpos = omega + t + 1;
-    uint8_t* xterm = xpos + t, *xmul = xterm + t;
+    uint8_t* xpos = syn;
+    uint8_t* xterm = b, *xmul = Lm;
 
     uint8_t x = GFIdxFast2(256 - n, lut);
     xterm[0] = x;
@@ -281,8 +282,8 @@ int __cdecl DecodeFL(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* scratch, uint8
         idx.u8.b = xterm[j];
         xterm[j] = lut[idx.u16]; //l_1*x^p, l_2*(x^p)^2, ...
     }
-
-    for (int j = 0; j < k; j++)
+    uint8_t found = 0;
+    for (int j = 0; j < n; j++)
     {
         uint8_t p = 1;
         for (int m = 0; m < nerr; m++)
@@ -294,6 +295,8 @@ int __cdecl DecodeFL(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* scratch, uint8
         }
         if (!p)
         {
+            found++;
+            //if (j >= k) continue;
             x = GFIdxFast2(256 - n + j, lut);
             uint8_t y = omega[0], s = 0;
             idx.u8.b = x;
@@ -313,9 +316,10 @@ int __cdecl DecodeFL(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* scratch, uint8
             idx.u8.b = GFInvFast2(s, lut);
             s = lut[idx.u16];
 
-            in[j] ^= s;
+            buffer[j] ^= s;
         }
     }
-    memcpy_s(out, k, in, k);
+    if (found != nerr)
+        return -3;
     return nerr;
 }

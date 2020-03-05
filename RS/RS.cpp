@@ -6,9 +6,21 @@
 #include <iomanip>
 #include <random>
 #include <windows.h>
-#include "rsalurlut.h"
-#include "rsaluflut.h"
-#include "rssse4.h"
+#include <set>
+#include "rsalu.h"
+#include "rsssse3.h"
+
+#include "rs-jp.h"
+
+//Wrappers for rs (jpwl) library
+int EncodeJPWL(uint8_t n, uint8_t k, void* coefs, void* lut, uint8_t* buffer)
+{
+    return encode_rs(buffer, buffer + k);
+}
+int DecodeJPWL(uint8_t n, uint8_t k, void* lut, uint8_t* buffer)
+{
+    return eras_dec_rs(buffer, nullptr, 0);
+}
 
 void PrintLUT(uint16_t* lut)
 {
@@ -54,6 +66,76 @@ int TestMul(uint8_t* fullLut, uint16_t* reducedLut)
     return 0;
 }
 
+void PrintStats(_LARGE_INTEGER start, _LARGE_INTEGER end, _LARGE_INTEGER freq, size_t size, const char* testType)
+{
+    _LARGE_INTEGER elapsed;
+    elapsed.QuadPart = end.QuadPart - start.QuadPart;
+    elapsed.QuadPart *= 1000;
+    elapsed.QuadPart /= freq.QuadPart;
+    int msecs = elapsed.LowPart;
+    std::cout << testType << " finished in " << msecs / 1000.0f << 's';
+    std::cout << ", speed: " << ((size / 1024) * 1000) / msecs << " Kb/s\n";
+}
+void BenchmarkTests(uint8_t n, uint8_t k, size_t size, uint8_t* memblock, uint8_t* outblock, void* coefs, void* lut, 
+    int (*EncodeData)(uint8_t, uint8_t, void*, void*, uint8_t*),
+    int (*DecodeData)(uint8_t, uint8_t, void*, uint8_t*))
+{
+    std::random_device rd;
+    std::mt19937 rgen(rd());
+    _LARGE_INTEGER StartingTime, EndingTime, Frequency;
+    long long blkCount = size / k + 1;
+    uint8_t t = (n - k) >> 1;
+
+    QueryPerformanceFrequency(&Frequency);
+    QueryPerformanceCounter(&StartingTime);
+    for (int j = 0; j < blkCount; j++)
+    {
+        memcpy_s(&outblock[j * n], k, &memblock[j * k], k);
+        EncodeData(n, k, lut, coefs, &outblock[j * n]); //Data expands here
+    }
+    QueryPerformanceCounter(&EndingTime);
+    PrintStats(StartingTime, EndingTime, Frequency, size, "Encoding");
+    memset(memblock, 0, size);
+    QueryPerformanceFrequency(&Frequency);
+    QueryPerformanceCounter(&StartingTime);
+    for (int j = 0; j < blkCount; j++)
+    {
+        DecodeData(n, k, lut, &outblock[j * n]);
+        memcpy_s(&memblock[j * k], k, &outblock[j * n], k); //Data shrinks here
+    }
+    QueryPerformanceCounter(&EndingTime);
+    PrintStats(StartingTime, EndingTime, Frequency, size, "Clear decoding");
+
+    int errorSum = 0;
+    //Introduce some errors
+    for (int j = 0; j < blkCount; j++)
+    {
+        uint8_t errors = rgen() % (t + 1);
+        for (uint8_t m = 0; m < errors; m++)
+        {
+            uint16_t randn = rgen();
+            int idx = j * n + randn % n; //Random position within a block
+            outblock[idx] = randn >> 8; //Upper byte as a random value
+        }
+        errorSum += errors;
+    }
+    std::cout << "Introduced approx. " << errorSum << " errors\n";
+
+    int err = 0;
+    memset(memblock, 0, size);
+    QueryPerformanceFrequency(&Frequency);
+    QueryPerformanceCounter(&StartingTime);
+    for (int j = 0; j < blkCount; j++)
+    {
+        if (DecodeData(n, k, lut, &outblock[j * n]) < 0)
+            err++;
+        memcpy_s(&memblock[j * k], k, &outblock[j * n], k); //Data shrinks here
+    }
+    QueryPerformanceCounter(&EndingTime);
+    PrintStats(StartingTime, EndingTime, Frequency, size, "Decoding");
+    std::cout << "Errors: " << err << std::endl;
+}
+
 void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
 {
     uint8_t t = (n - k) >> 1;
@@ -81,130 +163,134 @@ void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
     memcpy_s(origblock, size, memblock, size); //Save original data
     std::cout << "File opened, size " << size << std::endl;
 
-    uint16_t* lut = new uint16_t[REDUCED_LUT_SIZE];
-    uint8_t* flut = new uint8_t[FULL_LUT_SIZE];
+    uint8_t lut[REDUCED_LUT_SIZE];
     FillRLUT(lut);
-    FillFLUT(flut);
-    uint16_t* coefs = new uint16_t[COEFS_SIZE_RLUT];
-    FillCoefficents((uint16_t*)coefs, (uint8_t)(n - k), lut);
-    uint8_t* coefsFL = new uint8_t[COEFS_SIZE_FLUT(n, k)];
-    FillCoefficentsFL(coefsFL, (uint8_t)(n - k), flut);
-    uint16_t* scratch = new uint16_t[SCRATCH_SIZE_RLUT(n, k)];
-    std::random_device rd;
-    std::mt19937 rgen(rd()); 
-    LARGE_INTEGER StartingTime, EndingTime, ElapsedMilliseconds;
-    LARGE_INTEGER Frequency;
+    uint8_t coefs[COEFS_SIZE_RLUT];
+    FillCoefficents(coefs, (uint8_t)(n - k), lut);
+    //uint8_t* flut = new uint8_t[FULL_LUT_SIZE];
+    //FillFLUT(flut);
+    //uint8_t coefsFL[COEFS_SIZE_FLUT];
+    //FillCoefficentsFL(coefsFL, (uint8_t)(n - k), flut);
+    uint8_t luts[SSE_LUT_SIZE];
+    FillSSELUT(luts);
+    uint8_t coefsSSE[COEFS_SIZE_SSE];
+    FillCoefficentsSSE(coefsSSE, (uint8_t)(n - k), luts);
 
-    std::cout << "\nTesting ALU with reduced LUT\n";
+    std::cout << "\nTesting ALU\n";
     std::cout << std::setprecision(4);
-    QueryPerformanceFrequency(&Frequency);
-    QueryPerformanceCounter(&StartingTime);
-    for (int j = 0; j < blkCount; j++)
-    {
-        Encode(n, k, lut, coefs, &memblock[j * k], &outblock[j * n]); //Data expands here
-    }
-    QueryPerformanceCounter(&EndingTime);
-    ElapsedMilliseconds.QuadPart = EndingTime.QuadPart - StartingTime.QuadPart;
-    ElapsedMilliseconds.QuadPart *= 1000;
-    ElapsedMilliseconds.QuadPart /= Frequency.QuadPart;
-    int msecs = ElapsedMilliseconds.LowPart;
-    std::cout << "Encoding finished in " << msecs / 1000.0f << 's';
-    std::cout << ", speed: " << ((size / 1024) * 1000) / msecs << " Kb/s\n";
-
-    int errorSum = 0;
-    //Introduce some errors
-    for (int j = 0; j < blkCount; j++)
-    {
-        uint8_t errors = rgen() % t;
-        for (uint8_t m = 0; m < errors; m++)
-        {
-            uint16_t randn = rgen();
-            int idx = j * n + randn % n; //Random position within a block
-            outblock[idx] = randn >> 8; //Upper byte as a random value
-        }
-        errorSum += errors;
-    }
-    std::cout << "Introduced approx. " << errorSum << " errors\n";
-
-    QueryPerformanceFrequency(&Frequency);
-    QueryPerformanceCounter(&StartingTime);
-    for (int j = 0; j < blkCount; j++)
-    {
-        Decode(n, k, lut, scratch, &outblock[j * n], &memblock[j * k]); //Data shrinks here
-    }    
-    QueryPerformanceCounter(&EndingTime);
-    ElapsedMilliseconds.QuadPart = EndingTime.QuadPart - StartingTime.QuadPart;
-    ElapsedMilliseconds.QuadPart *= 1000;
-    ElapsedMilliseconds.QuadPart /= Frequency.QuadPart;
-    msecs = ElapsedMilliseconds.LowPart;
-    std::cout << "Decoding finished in " << msecs / 1000.0f << 's';
-    std::cout << ", speed: " << ((size / 1024) * 1000) / msecs << " Kb/s\n";
-
+    BenchmarkTests(n, k, size, memblock, outblock, coefs, lut, &Encode, &Decode);
     int check = memcmp(memblock, origblock, size);
     std::cout << "Data integrity check " << (check ? "failed\n" : "OK\n");
 
-    std::cout << "\nTesting ALU with full LUT\n";
+    std::cout << "\nTesting JPWL\n";
+    init_rs(k);
     memcpy_s(memblock, size, origblock, size); //Restore original data
-    QueryPerformanceFrequency(&Frequency);
-    QueryPerformanceCounter(&StartingTime);
-    for (int j = 0; j < blkCount; j++)
-    {
-        EncodeFL(n, k, flut, coefsFL, &memblock[j * k], &outblock[j * n]); //Data expands here
-    }
-    QueryPerformanceCounter(&EndingTime);
-    ElapsedMilliseconds.QuadPart = EndingTime.QuadPart - StartingTime.QuadPart;
-    ElapsedMilliseconds.QuadPart *= 1000;
-    ElapsedMilliseconds.QuadPart /= Frequency.QuadPart;
-    msecs = ElapsedMilliseconds.LowPart;
-    std::cout << "Encoding finished in " << msecs / 1000.0f << 's';
-    std::cout << ", speed: " << ((size / 1024) * 1000) / msecs << " Kb/s\n";
-
-    errorSum = 0;
-    //Introduce some errors
-    for (int j = 0; j < blkCount; j++)
-    {
-        uint8_t errors = rgen() % t;
-        for (uint8_t m = 0; m < errors; m++)
-        {
-            uint16_t randn = rgen();
-            int idx = j * n + randn % n; //Random position within a block
-            outblock[idx] = randn >> 8; //Upper byte as a random value
-        }
-        errorSum += errors;
-    }
-    std::cout << "Introduced approx. " << errorSum << " errors\n";
-
-    QueryPerformanceFrequency(&Frequency);
-    QueryPerformanceCounter(&StartingTime);
-    for (int j = 0; j < blkCount; j++)
-    {
-        DecodeFL(n, k, flut, (uint8_t*)scratch, &outblock[j * n], &memblock[j * k]); //Data shrinks here
-    }    
-    QueryPerformanceCounter(&EndingTime);
-    ElapsedMilliseconds.QuadPart = EndingTime.QuadPart - StartingTime.QuadPart;
-    ElapsedMilliseconds.QuadPart *= 1000;
-    ElapsedMilliseconds.QuadPart /= Frequency.QuadPart;
-    msecs = ElapsedMilliseconds.LowPart;
-    std::cout << "Decoding finished in " << msecs / 1000.0f << 's';
-    std::cout << ", speed: " << ((size / 1024) * 1000) / msecs << " Kb/s\n";
-
+    memset(outblock, 0, size);
+    BenchmarkTests(n, k, size, memblock, outblock, nullptr, nullptr, &EncodeJPWL, &DecodeJPWL);
     check = memcmp(memblock, origblock, size);
     std::cout << "Data integrity check " << (check ? "failed\n" : "OK\n");
 
-    delete[] lut, flut, coefs, scratch, memblock, outblock;
+    std::cout << "\nTesting SSSE3\n";
+    memcpy_s(memblock, size, origblock, size); //Restore original data
+    memset(outblock, 0, size);
+    BenchmarkTests(n, k, size, memblock, outblock, coefsSSE, luts, &EncodeSSSE3, &DecodeSSSE3);
+    check = memcmp(memblock, origblock, size);
+    std::cout << "Data integrity check " << (check ? "failed\n" : "OK\n");
+
+    delete[] memblock, outblock, origblock;
 }
 
-uint16_t lut[REDUCED_LUT_SIZE];
+void TestWithManyErrors(uint8_t n, uint8_t k, uint8_t ta, int rounds)
+{
+    uint8_t t = (n - k) >> 1;
+    t += ta;
+    std::random_device rd;
+    std::mt19937 rgen(rd());
+
+    uint8_t buffer[255], orig[255], origErr[255];
+    //uint8_t lut[REDUCED_LUT_SIZE];
+    //FillRLUT(lut);
+    //uint8_t coefs[COEFS_SIZE_RLUT];
+    //FillCoefficents(coefs, (uint8_t)(n - k), lut);
+    uint8_t luts[SSE_LUT_SIZE];
+    FillSSELUT(luts);
+    uint8_t coefsSSE[COEFS_SIZE_SSE];
+    FillCoefficentsSSE(coefsSSE, (uint8_t)(n - k), luts);
+
+    int ecount[53]; //For returned values in range [-4;48]
+    memset(ecount, 0, 53 * sizeof(int));
+    for (int m = 0; m < rounds; m++)
+    {
+        for (int j = 0; j < k; j++) //Generate random data
+            buffer[j] = (uint8_t)rgen();
+        EncodeSSSE3(n, k, luts, coefsSSE, buffer);
+        memcpy_s(orig, n, buffer, n);
+
+        std::set<uint8_t> st; //Set required to create exact number of errors as specified
+        while (st.size() < t)
+        {
+            uint16_t randn = rgen();
+            int idx = randn % n;
+            randn >>= 8; //Use upper byte for error value
+            if (!randn)
+                randn = 1; //We need to flip at least one bit
+            if (st.insert(idx).second)
+                buffer[idx] ^= (uint8_t)randn; //If idx is new in current sequence
+        }
+        memcpy_s(origErr, n, buffer, n);
+
+        for (auto pos : st)
+        {
+            for (int i = 0; i < 256; i++)
+            {
+                if (i == orig[pos]) continue; //Skip original value to not alter the number of errors
+                buffer[pos] = (uint8_t)i;
+                int result = DecodeSSSE3(n, k, luts, buffer);
+                ecount[result + 4]++;
+                memcpy_s(buffer, n, origErr, n);
+            }
+        }
+    }
+    int totalRounds = 0;
+    for (int j = 0; j < 53; j++)
+        totalRounds += ecount[j];
+    std::cout << "Rounds " << totalRounds << "\nStatistics:\n" << std::setprecision(4);
+    double erdet = 0;
+    for (int j = 0; j < 53; j++)
+    {
+        if (!ecount[j]) continue;
+        double er = ecount[j] * 100.0 / totalRounds;
+        std::cout << (j - 4) << ": " << er << '%' << '\n';
+        if (j < 4) 
+            erdet += er;
+    }
+    std::cout << "Total detected errors: " << erdet << '%' << '\n';
+}
+
+uint8_t lut[REDUCED_LUT_SIZE];
 //uint8_t lutf[FULL_LUT_SIZE];
 uint8_t luts[SSE_LUT_SIZE];
 
 int main()
 {
     std::cout << "Hello World!\n";
-    //RunBenchmark(255, 223, "C:\\Intel\\alisa.jpg"); //t=16
-    //RunBenchmark(255, 191, "C:\\Intel\\alisa.jpg"); //t=32
-    //RunBenchmark(255, 159, "C:\\Intel\\alisa.jpg"); //t=48
+    //for (int xt = 8; xt <= 32; xt += 8)
+    //{
+    //    for (int xj = 1; xj <= xt / 2; xj *= 2)
+    //    {
+    //        std::cout << "\nt = " << xt << ", e = " << (xj + xt) << '\n';
+    //        TestWithManyErrors(255, 255 - (xt * 2), xj, 16);
+    //    }
+    //}
     //return 0;
+
+    std::cout << "t = 16\n";
+    RunBenchmark(255, 223, "C:\\Intel\\meatloaf.jpg"); //t=16
+    std::cout << "\nt = 32\n";
+    RunBenchmark(255, 191, "C:\\Intel\\meatloaf.jpg"); //t=32
+    std::cout << "\nt = 48\n";
+    RunBenchmark(255, 159, "C:\\Intel\\meatloaf.jpg"); //t=48
+    return 0;
 
     FillRLUT(lut);
     //FillFLUT(lutf);
@@ -214,67 +300,112 @@ int main()
     //    std::cout << "Multiplication test failed\n";
     //else
     //    std::cout << "Multiplication test OK\n";
-    uint8_t n = 15, k = 11;
-    //uint8_t buffer[15] = { 11, 12, 13, 14, 15, 16, 17, 0, 0, 0, 0, 0, 0, 0, 0 }; //15, 7
-    uint8_t buffer[15] = { 21, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-    uint8_t buffer2[15] = { 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-    uint16_t coefs[COEFS_SIZE_RLUT];
+    uint8_t n = 255, k = 249;
+    //uint8_t buffer[15] = { 11, 12, 13, 14, 15, 16, 17, 0, 0, 0, 21, 0, 0, 0, 0 }; //15, 11
+    uint8_t buffer[255];
+    memset(buffer, 0, n);
+    buffer[0] = 127;
+    //uint8_t buffer2[15] = { 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    uint8_t coefs[COEFS_SIZE_RLUT];
     FillCoefficents(coefs, n - k, lut);
-    uint16_t scratch[SCRATCH_SIZE_RLUT(15, 11)];
+
+    //uint8_t coefsFL[COEFS_SIZE_FLUT];
+    //FillCoefficentsFL(coefs, n - k, lutf);
 
     uint8_t coefsSL[COEFS_SIZE_SSE];
     FillCoefficentsSSE(coefsSL, n - k, luts);
 
-    uint8_t out[15], orig[15];
-    EncodeSSE4(n, k, luts, coefsSL, buffer, out);
-    memcpy_s(orig, 15, out, 15);
+    init_rs(k);
+
+    uint8_t orig[255];
+    EncodeSSSE3(n, k, luts, coefsSL, buffer);
+    memcpy_s(orig, n, buffer, n);
     std::cout << "Original buffer: \n";
     for (int j = 0; j < n; j++)
         std::cout << (int)orig[j] << ' ';
     std::cout << std::endl;
 
-    memcpy_s(buffer, 15, orig, 15);
-    std::cout << "Check remainder: " << (Decode(n, k, lut, scratch, buffer, out) ? "fail" : "OK") << std::endl;
+    memcpy_s(buffer, n, orig, n);
+    std::cout << "Check remainder: " << (Decode(n, k, lut, buffer) ? "fail" : "OK") << std::endl;
+    int dec;
 
-    memcpy_s(buffer, 15, orig, 15);
-    buffer[0] = 14;
-    buffer[3] = 14; //112 - S1=0, 167 - S2=0, 81 - S3=0
-    std::cout << "Buffer with errors I: \n";
+    memset(buffer, 0, n);
+    buffer[0] = 127;
+    encode_rs(buffer, buffer + k);
+    std::cout << "rs-jp buffer: \n";
+    for (int j = 0; j < n; j++)
+        std::cout << (int)buffer[j] << ' ';
+    std::cout << std::endl;
+    //
+    //memcpy_s(orig, n, buffer, n);
+    //for (int i = 1; i < 256; i++)
+    //{
+    //    buffer[9] = 105; //112 - S1=0, 167 - S2=0, 81 - S3=0
+    //    buffer[17] = 112;
+    //    buffer[27] = (uint8_t)i;
+    //    buffer[250] = 81;
+    //    //std::cout << "Buffer with errors I: \n";
+    //    //for (int j = 0; j < n; j++)
+    //    //    std::cout << (int)buffer[j] << ' ';
+    //    //std::cout << std::endl;
+
+    //    dec = eras_dec_rs(buffer, nullptr, 0);
+    //    //dec = DecodeFL(n, k, lutf, buffer);
+    //    if (dec >= 0)
+    //        std::cout << "i/res: " << i << '/' << dec << ' ';
+    //    //std::cout << "Found errors I: " << dec << std::endl;
+    //    memcpy_s(buffer, n, orig, n);
+    //}        
+
+    buffer[9] = 105; //112 - S1=0, 167 - S2=0, 81 - S3=0
+    buffer[17] = 112;
+    buffer[27] = 4;
+    buffer[250] = 81;
+    //std::cout << "Buffer with errors I: \n";
+    //for (int j = 0; j < n; j++)
+    //    std::cout << (int)buffer[j] << ' ';
+    //std::cout << std::endl;
+
+    dec = eras_dec_rs(buffer, nullptr, 0);
+    //dec = DecodeFL(n, k, lutf, buffer);
+    std::cout << "Found errors I: " << dec << std::endl;
+
+    std::cout << "Corrected I: \n";
     for (int j = 0; j < n; j++)
         std::cout << (int)buffer[j] << ' ';
     std::cout << std::endl;
 
-    int dec = Decode(n, k, lut, scratch, buffer, out);
-    std::cout << "Found errors I: " << dec << std::endl;
+    dec = eras_dec_rs(buffer, nullptr, 0);
+    //dec = DecodeFL(n, k, lutf, buffer);
+    std::cout << "Found errors II: " << dec << std::endl;
 
-    std::cout << "Corrected I: \n";
-    for (int j = 0; j < k; j++)
-        std::cout << (int)out[j] << ' ';
+    std::cout << "Corrected II: \n";
+    for (int j = 0; j < n; j++)
+        std::cout << (int)buffer[j] << ' ';
     std::cout << std::endl;
 
-    //buffer[2] = ~buffer[2];
-    //buffer[4] = ~buffer[4];
-    //buffer[12] = ~buffer[12];
-    Encode(n, k, lut, coefs, buffer2, out);
+    memcpy_s(buffer, n, orig, n);
+    EncodeSSSE3(n, k, luts, coefsSL, buffer);
     std::cout << "Original buffer V: \n";
     for (int j = 0; j < n; j++)
-        std::cout << (int)out[j] << ' ';
-    std::cout << std::endl;
-    out[4] = 42;
-    //out[6] = ~out[6];
-    out[12] = 105; //105
-    std::cout << "Buffer with errors V: \n";
-    for (int j = 0; j < n; j++)
-        std::cout << (int)out[j] << ' ';
+        std::cout << (int)buffer[j] << ' ';
     std::cout << std::endl;
 
-    memcpy(buffer2, out, n);
-    dec = Decode(n, k, lut, scratch, buffer2, out);
+    std::cout << "Check remainder: " << (DecodeSSSE3(n, k, luts, buffer) ? "fail" : "OK") << std::endl;
+
+    //buffer[0] = 14;
+    buffer[9] = 105; //105
+    std::cout << "Buffer with errors V: \n";
+    for (int j = 0; j < n; j++)
+        std::cout << (int)buffer[j] << ' ';
+    std::cout << std::endl;
+
+    dec = DecodeSSSE3(n, k, luts, buffer);
     std::cout << "Found errors V: " << dec << std::endl;
 
     std::cout << "Corrected V: \n";
     for (int j = 0; j < k; j++)
-        std::cout << (int)out[j] << ' ';
+        std::cout << (int)buffer[j] << ' ';
     std::cout << std::endl;
     return 0;
 }
