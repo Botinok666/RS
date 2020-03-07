@@ -1,11 +1,5 @@
-//#define SSE_TEST
 #define ERROR_CHECKING
-
 #include "rsalu.h"
-//#include <stdio.h>
-#ifdef SSE_TEST
-#include <intrin.h>
-#endif // SSE_TEST
 
 // Slow multiply, using shifting
 // Polynomial x^8 + x^4 + x^3 + x^2 + 1
@@ -26,9 +20,9 @@ uint8_t GFMul(uint8_t a, uint8_t b)
 }
 
 // Fill the Exp/Log table
-void FillRLUT(void* LUT) {
+void FillRLUT(uint8_t* LUT) {
     uint8_t x = 1, index = 0;
-    uint16_t* lutExp = (uint16_t*)LUT + 256, * lutLog = (uint16_t*)LUT;
+    uint16_t* lutExp = (uint16_t*)LUT + ALU_LUT_EXP_OFFSET, * lutLog = (uint16_t*)LUT;
     lutExp[0] = x; //0:255 - log, 256:767 - exp, 768:1792 - zero
     for (int i = 0; i < 255; i++) {
         uint8_t y = GFMul(x, 2);
@@ -41,11 +35,11 @@ void FillRLUT(void* LUT) {
         lutLog[lutExp[i]] = i;
     memset(lutExp + 511, 0, 1025);
 }
-void FillCoefficents(void* Coefs, const uint8_t count, void* lut)
+void FillCoefficents(uint8_t* Coefs, const uint8_t count, uint8_t* lut)
 {
     if (count < 2) return;
 
-    uint16_t* lutExp = (uint16_t*)lut + 256, * lutLog = (uint16_t*)lut, * coefs = (uint16_t*)Coefs;
+    uint16_t* lutExp = (uint16_t*)lut + ALU_LUT_EXP_OFFSET, * lutLog = (uint16_t*)lut, * coefs = (uint16_t*)Coefs;
     coefs[count] = lutExp[0];
     coefs[count - 1] = 1;
     for (int k = 2; k <= count; k++)
@@ -63,19 +57,16 @@ void FillCoefficents(void* Coefs, const uint8_t count, void* lut)
     for (int j = 0; j <= count; j++)
         coefs[j] = lutLog[coefs[j]];
 }
-int __cdecl Encode(const uint8_t n, const uint8_t k, void* LUT, void* Coefs, uint8_t* buffer)
+int __cdecl Encode(const uint8_t n, const uint8_t k, uint8_t* LUT, uint8_t* Coefs, uint8_t* buffer)
 {
-    //Required size of scratch buffer is n
     int length = n - k + 1;
-    //if (length < 3 || n < 4)
-    //    return -1;
-    uint16_t* lutExp = (uint16_t*)LUT + 256, *lutLog = (uint16_t*)LUT;
-    uint8_t btemp[255 + 16];
+    uint16_t* lutExp = (uint16_t*)LUT + ALU_LUT_EXP_OFFSET, *lutLog = (uint16_t*)LUT;
+    uint16_t* coefs = (uint16_t*)Coefs + 1;
+    uint8_t btemp[255];
     memcpy_s(btemp, k, buffer, k);
     memset(btemp + k, 0, n - k);
     //Remainder calculation: long division
     uint8_t* oj = btemp;
-    uint16_t* coefs = (uint16_t*)Coefs + 1;
     for (int j = 0; j < k; j++)
     {
         int mul = lutLog[*oj++];
@@ -87,16 +78,13 @@ int __cdecl Encode(const uint8_t n, const uint8_t k, void* LUT, void* Coefs, uin
     memcpy_s(buffer + k, n - k, btemp + k, n - k);
     return 0;
 }
-int __cdecl Decode(const uint8_t n, const uint8_t k, void* lut, uint8_t* buffer)
+int __cdecl Decode(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
 {
     int scount = n - k;
-    //if (scount < 2 || n < 4)
-    //    return -1;
-    uint16_t* lutExp = (uint16_t*)lut + 256, * lutLog = (uint16_t*)lut;
+    uint16_t* lutExp = (uint16_t*)lut + ALU_LUT_EXP_OFFSET, * lutLog = (uint16_t*)lut;
 
-#ifndef SSE_TEST
     uint16_t hasErrors = 0;
-    uint16_t lambda[MAX_T_ALU], syn[MAX_T_ALU];
+    uint16_t lambda[MAX_S_ALU], syn[MAX_S_ALU];
     /*Syndrome calculation: Horner's method*/   
     {
         uint16_t stemp[255];
@@ -109,8 +97,8 @@ int __cdecl Decode(const uint8_t n, const uint8_t k, void* lut, uint8_t* buffer)
             for (int m = 0; m <= v; m++)
             {
                 int ecx = (v - m) * j;
-                ecx = (ecx >> 8) + (ecx & 0xff);
-                ecx = (ecx >> 8) + (ecx & 0xff);
+                ecx = (ecx >> 8) + (ecx & 0xff); //Close analog to (ecx %= 255), but faster
+                ecx = (ecx >> 8) + (ecx & 0xff); //Result [255] is possible, that's acceptable here
                 s ^= lutExp[stemp[m] + ecx];
             }
             hasErrors |= s;
@@ -118,97 +106,15 @@ int __cdecl Decode(const uint8_t n, const uint8_t k, void* lut, uint8_t* buffer)
         }
     }
     if (!hasErrors) return 0;
-#else
-    __declspec(align(16)) uint16_t lambda[MAX_T_ALU], syn[MAX_T_ALU];
-    int steps = (scount - 1) >> 3;
-    int hasNoErrors = 0xffff;
-    /*Syndrome calculation: Horner's method*/
-    {
-        uint16_t stemp[256];
-        __declspec(align(16)) uint16_t vbuf[8];
-        for (int j = 0; j < n; j++)
-            stemp[j] = lutLog[buffer[j]];
-
-        int v = n - 1;
-        __m128i* vsyn = (__m128i*)syn;
-        __m128i* vstmp = (__m128i*)stemp;
-        __m128i vj = _mm_set_epi16(7, 6, 5, 4, 3, 2, 1, 0);
-        __m128i vz = _mm_setzero_si128();
-        __m128i v1 = _mm_set1_epi16(1);
-        __m128i v8 = _mm_set1_epi16(8);
-        __m128i vmask = _mm_set1_epi16(0xff);
-
-        _mm_store_si128((__m128i*)lambda, vz);
-        memset(lambda, 0xff, (long long)(scount & 0x7) << 1); //Temporal storage for root mask
-
-        for (int j = 0; j <= steps; j++)
-        {
-            __m128i vs = vz;
-            __m128i vv = _mm_set1_epi16(n);
-
-            for (int m = 0; m <= v; m++)
-            {
-                vv = _mm_sub_epi16(vv, v1);
-                __m128i ve = _mm_mullo_epi16(vv, vj); //(v-m)*j
-                __m128i vx = _mm_and_si128(ve, vmask); //e & 0xff
-                ve = _mm_srli_epi16(ve, 8); //e >> 8
-                ve = _mm_add_epi16(ve, vx);
-                vx = _mm_and_si128(ve, vmask); //e & 0xff
-                ve = _mm_srli_epi16(ve, 8); //e >> 8
-                ve = _mm_add_epi16(ve, vx);
-
-                vx = _mm_set1_epi16(stemp[m]);
-                vx = _mm_add_epi16(vx, ve);
-
-                _mm_store_si128((__m128i*)vbuf, vx);
-                vbuf[0] = lutExp[vbuf[0]];
-                vbuf[1] = lutExp[vbuf[1]];
-                vbuf[2] = lutExp[vbuf[2]];
-                vbuf[3] = lutExp[vbuf[3]];
-                vbuf[4] = lutExp[vbuf[4]];
-                vbuf[5] = lutExp[vbuf[5]];
-                vbuf[6] = lutExp[vbuf[6]];
-                vbuf[7] = lutExp[vbuf[7]];
-                vx = _mm_load_si128((__m128i*)vbuf);
-
-                vs = _mm_xor_si128(vs, vx);
-            }
-            if (j == steps && lambda[0]) //Non-zero lambda[0] means that scount % 0x7 != 0
-                vs = _mm_and_si128(vs, _mm_load_si128((__m128i*)lambda));
-            hasNoErrors &= _mm_movemask_epi8(_mm_cmpeq_epi16(vs, vz));
-            _mm_store_si128(vsyn++, vs);
-            vj = _mm_add_epi16(vj, v8);
-        }
-
-        for (int j = 0; j < scount; j++)
-            syn[j] = lutLog[syn[j]];
-    }
-    if (hasNoErrors == 0xffff) return 0;
-#endif // !SSE_TEST
-
-    //printf_s("Syndromes: ");
-    //for (int j = 0; j < scount; j++)
-    //    printf_s("%d ", lutExp[syn[j]]);
-    //printf_s("\n");
 
     //Lambda calculation: Berlekamp's method
-    uint16_t omega[MAX_T_ALU], b[MAX_T_ALU], Lm[MAX_T_ALU];
+    uint16_t omega[MAX_S_ALU], b[MAX_S_ALU], Lm[MAX_S_ALU];
     //Set initial value of b and lambda to 1
     memset(b, 0, scount * sizeof(uint16_t));
     b[1] = 1;
     memset(lambda, 0, scount * sizeof(uint16_t));
     lambda[0] = 1;
     int l = 0;
-    /* First, calculate delta = S_r-1 ^ lambda_1 * S_r-2 ^ ... ^ lambda_l * S_r-l-1
-    If delta == 0, continue
-    Else save lambda to Lm, then calculate new lambda:
-    lambda[] = lambda_1 ^ (b_0 * delta), lambda_2 ^ (b_1 * delta), ...
-    Now b array needs an update
-    If 2*l <= r-1:
-        delta = 1 / delta; b[] = Lm_0 * delta, Lm_1 * delta, ...
-    else:
-        shift b[] to the left, b_0 = 0
-    */
     for (int r = 1; r <= scount; r++)
     {
         uint16_t* si = syn + r - 1, * li = lambda;
@@ -254,15 +160,11 @@ int __cdecl Decode(const uint8_t n, const uint8_t k, void* lut, uint8_t* buffer)
             nerr = m;
         lambda[m] = lutLog[lg]; //Convert to indexes
     }
-    //printf_s("\nLambda: ");
-    //for (int j = 0; j <= nerr; j++)
-    //    printf_s("%d ", lutExp[lambda[j]]);
-    //printf_s("\n");
     if (nerr > (scount >> 1))
         return -2; //deg(lambda) > t? Uncorrectable error pattern occured
 
     /* Omega calculation */
-    //Omega must be calculated only up to t power
+    //Omega must be calculated only up to {nerr} power
     for (int m = 0; m <= nerr; m++)
     {
         uint16_t og = lutExp[syn[m]];
@@ -273,19 +175,9 @@ int __cdecl Decode(const uint8_t n, const uint8_t k, void* lut, uint8_t* buffer)
         }
         omega[m] = lutLog[og]; //Convert to indexes
     }
-    //printf_s("Omega: ");
-    //for (int j = 0; j <= nerr; j++)
-    //    printf_s("%d ", lutExp[omega[j]]);
-    //printf_s("\n");
 
     uint16_t* xterm = syn;
-    /* Chien search
-    We need to substitute x[] to labmda(x), where x[] = x^-n+1, x^-n+2, ..., 1 = x^256-n, x^256-n+1, ..., 1
-    Because lambda[] = lambda_0 * x^l-1, lambda_1 * x^l-2, ... lambda_l
-    We can precompute indexes in xterm[]: xterm_j = (log(lambda_j+1) + (256 - n) * (j + 1)) mod 255
-    Then for each x: B_j = 1 ^ exp(xterm_0) ^ exp(xterm_1) ^ ... ^ exp(xterm_m-1)
-    And change xterm[]: xterm_m = (xterm_m + m + 1) mod 255
-    */
+    /* Chien search */
     int x = 256 - n;
     for (int j = 1; j <= nerr; j++)
     {

@@ -79,9 +79,9 @@ namespace UnitTestRS
 		const std::vector<uint8_t> sdval = { 1, 15, 88, 135, 255 };
 		const int repeats = 16;
 
-		void TestAllOnesOrZeros(void* Coefs, void* LUT, void (*FillCoeffs)(void*, uint8_t, void*),
-			int (*EncodeData)(uint8_t, uint8_t, void*, void*, uint8_t*),
-			int (*DecodeData)(uint8_t, uint8_t, void*, uint8_t*))
+		void TestAllOnesOrZeros(uint8_t* Coefs, uint8_t* LUT, void (*FillCoeffs)(uint8_t*, uint8_t, uint8_t*),
+			int (*EncodeData)(uint8_t, uint8_t, uint8_t*, uint8_t*, uint8_t*),
+			int (*DecodeData)(uint8_t, uint8_t, uint8_t*, uint8_t*))
 		{
 			uint8_t buffer[255], bufferOrig[255];
 			wchar_t message[200];
@@ -140,9 +140,9 @@ namespace UnitTestRS
 				}
 			}
 		}
-		void TestSingleByteData(void* Coefs, void* LUT, void (*FillCoeffs)(void*, uint8_t, void*),
-			int (*EncodeData)(uint8_t, uint8_t, void*, void*, uint8_t*),
-			int (*DecodeData)(uint8_t, uint8_t, void*, uint8_t*))
+		void TestSingleByteData(uint8_t* Coefs, uint8_t* LUT, void (*FillCoeffs)(uint8_t*, uint8_t, uint8_t*),
+			int (*EncodeData)(uint8_t, uint8_t, uint8_t*, uint8_t*, uint8_t*),
+			int (*DecodeData)(uint8_t, uint8_t, uint8_t*, uint8_t*))
 		{
 			uint8_t buffer[255], bufferOrig[255];
 			wchar_t message[200];
@@ -209,9 +209,9 @@ namespace UnitTestRS
 				}
 			}
 		}
-		void TestRandomData(void* Coefs, void* LUT, void (*FillCoeffs)(void*, uint8_t, void*),
-			int (*EncodeData)(uint8_t, uint8_t, void*, void*, uint8_t*),
-			int (*DecodeData)(uint8_t, uint8_t, void*, uint8_t*))
+		void TestRandomData(uint8_t* Coefs, uint8_t* LUT, void (*FillCoeffs)(uint8_t*, uint8_t, uint8_t*),
+			int (*EncodeData)(uint8_t, uint8_t, uint8_t*, uint8_t*, uint8_t*),
+			int (*DecodeData)(uint8_t, uint8_t, uint8_t*, uint8_t*))
 		{
 			uint8_t buffer[255], bufferOrig[255];
 			wchar_t message[200];
@@ -277,24 +277,24 @@ namespace UnitTestRS
 		}
 		TEST_METHOD(TestAllOnesOrZerosALU)
 		{
-			uint8_t lut[REDUCED_LUT_SIZE];
-			uint8_t coefs[COEFS_SIZE_RLUT];
+			uint8_t lut[ALU_LUT_SIZE];
+			uint8_t coefs[COEFS_SIZE_ALU];
 			FillRLUT(lut);
 			TestAllOnesOrZeros(coefs, lut, &FillCoefficents, &Encode, &Decode);
 		}
 
 		TEST_METHOD(TestSingleByteDataALU)
 		{
-			uint8_t lut[REDUCED_LUT_SIZE];
-			uint8_t coefs[COEFS_SIZE_RLUT];
+			uint8_t lut[ALU_LUT_SIZE];
+			uint8_t coefs[COEFS_SIZE_ALU];
 			FillRLUT(lut);
 			TestSingleByteData(coefs, lut, &FillCoefficents, &Encode, &Decode);
 		}		
 
 		TEST_METHOD(TestRandomDataALU)
 		{
-			uint8_t lut[REDUCED_LUT_SIZE];
-			uint8_t coefs[COEFS_SIZE_RLUT];
+			uint8_t lut[ALU_LUT_SIZE];
+			uint8_t coefs[COEFS_SIZE_ALU];
 			FillRLUT(lut);
 			TestRandomData(coefs, lut, &FillCoefficents, &Encode, &Decode);
 		}
@@ -325,7 +325,7 @@ namespace UnitTestRS
 		//	TestRandomData(coefs, flut, &FillCoefficentsFL, &EncodeFL, &DecodeFL);
 		//	delete[] flut;
 		//}
-		TEST_METHOD(TestAllOnesOrZerosSSE4)
+		TEST_METHOD(TestAllOnesOrZerosSSSE3)
 		{
 			uint8_t* luts = new uint8_t[SSE_LUT_SIZE];
 			FillSSELUT(luts);
@@ -334,7 +334,7 @@ namespace UnitTestRS
 			delete[] luts;
 		}
 
-		TEST_METHOD(TestSingleByteDataSSE4)
+		TEST_METHOD(TestSingleByteDataSSSE3)
 		{
 			uint8_t* luts = new uint8_t[SSE_LUT_SIZE];
 			FillSSELUT(luts);
@@ -343,7 +343,7 @@ namespace UnitTestRS
 			delete[] luts;
 		}
 		
-		TEST_METHOD(TestRandomDataSSE4)
+		TEST_METHOD(TestRandomDataSSSE3)
 		{
 			uint8_t* luts = new uint8_t[SSE_LUT_SIZE];
 			FillSSELUT(luts);

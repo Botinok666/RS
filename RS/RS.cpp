@@ -11,13 +11,14 @@
 #include "rsssse3.h"
 
 #include "rs-jp.h"
+#include <intrin.h>
 
 //Wrappers for rs (jpwl) library
-int EncodeJPWL(uint8_t n, uint8_t k, void* coefs, void* lut, uint8_t* buffer)
+int EncodeJPWL(uint8_t n, uint8_t k, uint8_t* coefs, uint8_t* lut, uint8_t* buffer)
 {
     return encode_rs(buffer, buffer + k);
 }
-int DecodeJPWL(uint8_t n, uint8_t k, void* lut, uint8_t* buffer)
+int DecodeJPWL(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* buffer)
 {
     return eras_dec_rs(buffer, nullptr, 0);
 }
@@ -40,32 +41,6 @@ void PrintLUT(uint16_t* lut)
     }
 }
 
-// testMul: go through all possible products of two bytes
-int TestMul(uint8_t* fullLut, uint16_t* reducedLut)
-{
-    uint16_t* lutExp = reducedLut + 256, *lutLog = reducedLut;
-    for (int i = 0; i < 256; i++) 
-    {
-        for (int j = 0; j < 256; j++) 
-        {
-            uint8_t x = fullLut[i | (j << 8)];
-            uint8_t y = (uint8_t)lutExp[lutLog[i] + lutLog[j]];
-            if (x != y)
-            {
-                std::cout << "a: " << i << ", b: " << j << std::endl;
-                return -1;
-            }
-        }
-        if (i)
-        {
-            uint8_t inv = fullLut[(1 << 16) | i];
-            if (fullLut[inv | (i << 8)] != 1)
-                std::cout << "Inv a: " << i << std::endl;
-        }
-    }
-    return 0;
-}
-
 void PrintStats(_LARGE_INTEGER start, _LARGE_INTEGER end, _LARGE_INTEGER freq, size_t size, const char* testType)
 {
     _LARGE_INTEGER elapsed;
@@ -76,15 +51,16 @@ void PrintStats(_LARGE_INTEGER start, _LARGE_INTEGER end, _LARGE_INTEGER freq, s
     std::cout << testType << " finished in " << msecs / 1000.0f << 's';
     std::cout << ", speed: " << ((size / 1024) * 1000) / msecs << " Kb/s\n";
 }
-void BenchmarkTests(uint8_t n, uint8_t k, size_t size, uint8_t* memblock, uint8_t* outblock, void* coefs, void* lut, 
-    int (*EncodeData)(uint8_t, uint8_t, void*, void*, uint8_t*),
-    int (*DecodeData)(uint8_t, uint8_t, void*, uint8_t*))
+void BenchmarkTests(uint8_t n, uint8_t k, size_t size, uint8_t* memblock, uint8_t* outblock, uint8_t* coefs, uint8_t* lut,
+    int (*EncodeData)(uint8_t, uint8_t, uint8_t*, uint8_t*, uint8_t*),
+    int (*DecodeData)(uint8_t, uint8_t, uint8_t*, uint8_t*))
 {
     std::random_device rd;
     std::mt19937 rgen(rd());
     _LARGE_INTEGER StartingTime, EndingTime, Frequency;
     long long blkCount = size / k + 1;
     uint8_t t = (n - k) >> 1;
+    int err = 0;
 
     QueryPerformanceFrequency(&Frequency);
     QueryPerformanceCounter(&StartingTime);
@@ -100,11 +76,13 @@ void BenchmarkTests(uint8_t n, uint8_t k, size_t size, uint8_t* memblock, uint8_
     QueryPerformanceCounter(&StartingTime);
     for (int j = 0; j < blkCount; j++)
     {
-        DecodeData(n, k, lut, &outblock[j * n]);
+        if (DecodeData(n, k, lut, &outblock[j * n]) != 0)
+            err++;
         memcpy_s(&memblock[j * k], k, &outblock[j * n], k); //Data shrinks here
     }
     QueryPerformanceCounter(&EndingTime);
     PrintStats(StartingTime, EndingTime, Frequency, size, "Clear decoding");
+    std::cout << "Errors: " << err << std::endl;
 
     int errorSum = 0;
     //Introduce some errors
@@ -121,7 +99,7 @@ void BenchmarkTests(uint8_t n, uint8_t k, size_t size, uint8_t* memblock, uint8_
     }
     std::cout << "Introduced approx. " << errorSum << " errors\n";
 
-    int err = 0;
+    err = 0;
     memset(memblock, 0, size);
     QueryPerformanceFrequency(&Frequency);
     QueryPerformanceCounter(&StartingTime);
@@ -163,14 +141,11 @@ void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
     memcpy_s(origblock, size, memblock, size); //Save original data
     std::cout << "File opened, size " << size << std::endl;
 
-    uint8_t lut[REDUCED_LUT_SIZE];
+    uint8_t lut[ALU_LUT_SIZE];
     FillRLUT(lut);
-    uint8_t coefs[COEFS_SIZE_RLUT];
+    uint8_t coefs[COEFS_SIZE_ALU];
     FillCoefficents(coefs, (uint8_t)(n - k), lut);
-    //uint8_t* flut = new uint8_t[FULL_LUT_SIZE];
-    //FillFLUT(flut);
-    //uint8_t coefsFL[COEFS_SIZE_FLUT];
-    //FillCoefficentsFL(coefsFL, (uint8_t)(n - k), flut);
+
     uint8_t luts[SSE_LUT_SIZE];
     FillSSELUT(luts);
     uint8_t coefsSSE[COEFS_SIZE_SSE];
@@ -208,10 +183,7 @@ void TestWithManyErrors(uint8_t n, uint8_t k, uint8_t ta, int rounds)
     std::mt19937 rgen(rd());
 
     uint8_t buffer[255], orig[255], origErr[255];
-    //uint8_t lut[REDUCED_LUT_SIZE];
-    //FillRLUT(lut);
-    //uint8_t coefs[COEFS_SIZE_RLUT];
-    //FillCoefficents(coefs, (uint8_t)(n - k), lut);
+
     uint8_t luts[SSE_LUT_SIZE];
     FillSSELUT(luts);
     uint8_t coefsSSE[COEFS_SIZE_SSE];
@@ -267,13 +239,13 @@ void TestWithManyErrors(uint8_t n, uint8_t k, uint8_t ta, int rounds)
     std::cout << "Total detected errors: " << erdet << '%' << '\n';
 }
 
-uint8_t lut[REDUCED_LUT_SIZE];
-//uint8_t lutf[FULL_LUT_SIZE];
+uint8_t lut[ALU_LUT_SIZE];
 uint8_t luts[SSE_LUT_SIZE];
 
 int main()
 {
     std::cout << "Hello World!\n";
+
     //for (int xt = 8; xt <= 32; xt += 8)
     //{
     //    for (int xj = 1; xj <= xt / 2; xj *= 2)
@@ -293,24 +265,16 @@ int main()
     return 0;
 
     FillRLUT(lut);
-    //FillFLUT(lutf);
     FillSSELUT(luts);
     
-    //if (TestMul(flut, lut))
-    //    std::cout << "Multiplication test failed\n";
-    //else
-    //    std::cout << "Multiplication test OK\n";
     uint8_t n = 255, k = 249;
     //uint8_t buffer[15] = { 11, 12, 13, 14, 15, 16, 17, 0, 0, 0, 21, 0, 0, 0, 0 }; //15, 11
     uint8_t buffer[255];
     memset(buffer, 0, n);
     buffer[0] = 127;
     //uint8_t buffer2[15] = { 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-    uint8_t coefs[COEFS_SIZE_RLUT];
+    uint8_t coefs[COEFS_SIZE_ALU];
     FillCoefficents(coefs, n - k, lut);
-
-    //uint8_t coefsFL[COEFS_SIZE_FLUT];
-    //FillCoefficentsFL(coefs, n - k, lutf);
 
     uint8_t coefsSL[COEFS_SIZE_SSE];
     FillCoefficentsSSE(coefsSL, n - k, luts);

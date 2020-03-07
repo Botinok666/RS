@@ -1,6 +1,5 @@
 #include "rsssse3.h"
 #include <intrin.h>
-//#include <stdio.h>
 #define ERROR_CHECKING
 
 // Slow multiply, using shifting
@@ -71,10 +70,9 @@ void FillSSELUT(uint8_t* lut) {
     }
     _mm_store_si128(lutRev, _mm_setzero_si128()); //Clear next 16 bytes so during unaligned load there will be no random data
 }
-void FillCoefficentsSSE(void* Coefsu, uint8_t count, void* LUT)
+void FillCoefficentsSSE(uint8_t* coefsu, uint8_t count, uint8_t* lut)
 {
     if (count < 2) return;
-    uint8_t* lut = (uint8_t*)LUT, * coefsu = (uint8_t*)Coefsu;
 	if (lut[0] != 0xff) //LUT table requires alignment
 	{
 		uint64_t offset = lut[0];
@@ -91,7 +89,7 @@ void FillCoefficentsSSE(void* Coefsu, uint8_t count, void* LUT)
 	uint8_t* coefs = coefsu + offset - 1; //coefs[0] will be placed outside of aligned array
 	__m128i vz = _mm_setzero_si128();
 	__m128i* cptr = (__m128i*)(coefsu + offset);
-	for (int i = 0; i < MAX_T_SSE / 16; i++) //Clear coefs
+	for (int i = 0; i < MAX_S_SSE / 16; i++) //Clear coefs
 		_mm_store_si128(cptr++, vz);
 	
     coefs[count] = 1;
@@ -188,11 +186,9 @@ static inline void GFMulSSE2(__m128i *va, __m128i *vb, __m128i *vz, __m128i *vs,
     *vb = _mm_xor_si128(*vb, vx);
 }
 
-int __cdecl EncodeSSSE3(uint8_t n, uint8_t k, void* LUT, void* Coefs, uint8_t* buffer)
+int __cdecl EncodeSSSE3(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* coefs, uint8_t* buffer)
 {
-    //Required size of scratch buffer is n
     int length = n - k;
-    uint8_t* lut = (uint8_t*)LUT, * coefs = (uint8_t*)Coefs;
 	if (lut[0] != 0xff) //LUT table requires alignment
 		lut += lut[0];
     if ((uint64_t)lut & 0xf)
@@ -237,18 +233,17 @@ int __cdecl EncodeSSSE3(uint8_t n, uint8_t k, void* LUT, void* Coefs, uint8_t* b
     memcpy_s(buffer + k, n - k, btemp + k, n - k);
     return 0;
 }
-int __cdecl DecodeSSSE3(uint8_t n, uint8_t k, void* LUT, uint8_t* buffer)
+int __cdecl DecodeSSSE3(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* buffer)
 {
     int scount = n - k, steps = (scount - 1) >> 4;
-    uint8_t* lut = (uint8_t*)LUT;
 	if (lut[0] != 0xff) //LUT table requires alignment
 		lut += lut[0];
     if ((uint64_t)lut & 0xf)
         return -3; //LUT still misaligned? Error must be thrown on upper level
 
     uint8_t* lutLog = lut, * lutExp = lut + SSE_LUT_EXP_OFFSET, * lutSSE = lut + SSE_LUT_SSE_OFFSET;
-    __declspec(align(16)) uint8_t lambda[MAX_T_SSE], omega[MAX_T_SSE], syn[MAX_T_SSE];
-	__declspec(align(16)) uint8_t b[MAX_T_SSE], Lm[MAX_T_SSE];
+    __declspec(align(16)) uint8_t lambda[MAX_S_SSE], omega[MAX_S_SSE], syn[MAX_S_SSE];
+	__declspec(align(16)) uint8_t b[MAX_S_SSE], Lm[MAX_S_SSE];
 
     /*Syndrome calculation*/
     int hasNoErrors = 0xffff;
@@ -266,8 +261,7 @@ int __cdecl DecodeSSSE3(uint8_t n, uint8_t k, void* LUT, uint8_t* buffer)
         for (int m = 0; m < n - 1; m++)
         {
             __m128i va = vroot;
-            __m128i vb = _mm_set1_epi8(*inm++);
-            vb = _mm_xor_si128(vb, vs); //s ^= in[m]
+            __m128i vb = _mm_xor_si128(vs, _mm_set1_epi8(*inm++)); //s ^= in[m]
             //Perform full multiplication: s *= root, or s = b * root
             vs = vz; //Clear s
             GFMulSSE2(&va, &vb, &vz, &vs, &vgp);
@@ -279,10 +273,6 @@ int __cdecl DecodeSSSE3(uint8_t n, uint8_t k, void* LUT, uint8_t* buffer)
         _mm_store_si128(vsyn++, vs);
     }
     if (hasNoErrors == 0xffff) return 0;
-    //printf_s("Syndromes: ");
-    //for (int j = 0; j < scount; j++)
-    //    printf_s("%d ", syn[j]);
-    //printf_s("\n");
 
     //Lambda calculation: Berlekamp's method
     //Set initial value of b and lambda to 1, and shift b left
@@ -312,7 +302,7 @@ int __cdecl DecodeSSSE3(uint8_t n, uint8_t k, void* LUT, uint8_t* buffer)
 				delta ^= lutExp[idx];
 			}
         }
-        uint8_t sr = (r > 17) ? ((r - 2) >> 4) : 0;
+        uint8_t sr = (r > 17) ? ((r - 2) >> 4) : 0; //Optimization for less copy operations
         if (delta)
         {
 			int ri = delta;
@@ -389,17 +379,11 @@ int __cdecl DecodeSSSE3(uint8_t n, uint8_t k, void* LUT, uint8_t* buffer)
 			break;
 		}
     }
-    //printf_s("Lambda: ");
-    //for (int j = 0; j <= nerr; j++)
-    //    printf_s("%d ", lambda[j]);
-    //printf_s("\n");
     if (nerr > (scount >> 1))
         return -2; //deg(lambda) > t? Uncorrectable error pattern occured
 
-    /* Omega calculation
-    O_y = S_y ^ (lambda_1 * S_y-1) ^ ... ^ (lambda_l * S_y-l)
-    */
-    //Omega must be calculated only up to t power
+    /* Omega calculation */
+    //Omega must be calculated only up to {nerr} power
     for (int m = 0; m <= nerr; m++)
     {
         uint8_t og = syn[m];
@@ -417,10 +401,6 @@ int __cdecl DecodeSSSE3(uint8_t n, uint8_t k, void* LUT, uint8_t* buffer)
         }
         omega[m] = og;
     }
-    //printf_s("Omega: ");
-    //for (int j = 0; j <= nerr; j++)
-    //    printf_s("%d ", omega[j]);
-    //printf_s("\n");
 
     /* Chien search
     We need to substitute x[] to labmda(x), where x[] = x^-n+1, x^-n+2, ..., 1 = x^256-n, x^256-n+1, ..., 1 */
@@ -444,18 +424,6 @@ int __cdecl DecodeSSSE3(uint8_t n, uint8_t k, void* LUT, uint8_t* buffer)
             //Perform full multiplication: s *= root, or s = b * root
             vs = vz;
             GFMulSSE2(&va, &vb, &vz, &vs, &vgp);
-            //while (1)
-            //{
-            //    __m128i vx = _mm_cmpgt_epi8(vz, va);
-            //    vx = _mm_and_si128(vx, vb);
-            //    vs = _mm_xor_si128(vs, vx);
-            //    vx = _mm_cmpgt_epi8(vz, vb);
-            //    vx = _mm_and_si128(vx, vgp);
-            //    vb = _mm_add_epi8(vb, vb);
-            //    vb = _mm_xor_si128(vb, vx);
-            //    va = _mm_add_epi8(va, va);
-            //    if (_mm_testz_si128(va, va)) break;
-            //}
             va = _mm_set1_epi8(*li--);
             vs = _mm_xor_si128(vs, va); //s ^= lambda[nerr - m]
         }
