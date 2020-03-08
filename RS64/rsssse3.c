@@ -1,7 +1,6 @@
-#include "rsssse3.h"
 #include <intrin.h>
+#include "rsssse3.h"
 #define ERROR_CHECKING
-
 // Slow multiply, using shifting
 // Polynomial x^8 + x^4 + x^3 + x^2 + 1
 uint8_t GFMul3(uint8_t a, uint8_t b)
@@ -18,98 +17,6 @@ uint8_t GFMul3(uint8_t a, uint8_t b)
         a >>= 1;
     }
     return r;
-}
-// Fill the Exp/Log/SSE tables
-void FillSSELUT(uint8_t* lut) {
-	uint64_t offset = (uint64_t)lut & 0xf;
-	if (offset) //Array is not aligned to 16 bytes boundary
-	{
-		offset = 0x10 - offset;
-		lut[0] = (uint8_t)offset; //Store offset
-		lut += offset; //Offset LUT pointer
-	}
-    uint8_t* lutExp = lut + SSE_LUT_EXP_OFFSET, *lutSSE = lut + SSE_LUT_SSE_OFFSET;
-    uint8_t x = 1, index = 0;
-    lutExp[0] = x; //0:255 - log, 256:767 - exp, 768:8960 - sse
-    for (int i = 0; i < 255; i++) {
-        uint8_t y = GFMul3(x, 2);
-        lutExp[++index] = y;
-        lutExp[index + 255] = y;
-        x = y;
-    }
-    lutExp[767] = 0;
-
-    lut[0] = 255; //Log(0) = inf
-    for (int i = 0; i < 256; i++)
-    {
-        lut[lutExp[i]] = i;
-        //Fill SSE "multiply vector to scalar" table
-        uint8_t* usse = lutSSE + i * 32LL, *lsse = usse + 16;
-        for (uint8_t j = 0; j < 16; j++)
-        {
-            *usse++ = GFMul3(j << 4, (uint8_t)i);
-            *lsse++ = GFMul3(j, (uint8_t)i);
-        }
-    }
-    __m128i* lutRev = (__m128i*)(lut + SSE_LUT_REV_OFFSET);
-    __m128i* roots = (__m128i*)lutExp;
-    __m128i vmask = _mm_set1_epi8(0xf);
-    __m128i vlrev = _mm_set_epi8(15, 7, 11, 3, 13, 5, 9, 1, 14, 6, 10, 2, 12, 4, 8, 0);
-    __m128i vhrev = _mm_set_epi8(-16, 112, -80, 48, -48, 80, -112, 16, -32, 96, -96, 32, -64, 64, -128, 0);
-    //Fill table with roots with reverse ordered bits
-    for (int i = 0; i < 256; i += 16)
-    {
-        __m128i a = _mm_loadu_si128(roots++);
-        __m128i c = _mm_and_si128(a, vmask);
-        c = _mm_shuffle_epi8(vhrev, c);
-        a = _mm_srli_epi64(a, 4);
-        a = _mm_and_si128(a, vmask);
-        a = _mm_shuffle_epi8(vlrev, a);
-        a = _mm_or_si128(a, c);
-        _mm_store_si128(lutRev++, a);
-    }
-    _mm_store_si128(lutRev, _mm_setzero_si128()); //Clear next 16 bytes so during unaligned load there will be no random data
-}
-void FillCoefficentsSSE(uint8_t* coefsu, uint8_t count, uint8_t* lut)
-{
-    if (count < 2) return;
-	if (lut[0] != 0xff) //LUT table requires alignment
-	{
-		uint64_t offset = lut[0];
-		lut += offset;
-	}
-    if ((uint64_t)lut & 0xf)
-        return; //LUT still misaligned? Error must be thrown on upper level
-	
-    uint8_t* lutExp = lut + SSE_LUT_EXP_OFFSET, * lutLog = lut;
-	
-	//We need to align array at 16 bytes boundary
-	uint64_t offset = 0x10 - ((uint64_t)coefsu & 0xf);
-	coefsu[0] = (uint8_t)offset; //Save offset
-	uint8_t* coefs = coefsu + offset - 1; //coefs[0] will be placed outside of aligned array
-	__m128i vz = _mm_setzero_si128();
-	__m128i* cptr = (__m128i*)(coefsu + offset);
-	for (int i = 0; i < MAX_S_SSE / 16; i++) //Clear coefs
-		_mm_store_si128(cptr++, vz);
-	
-    coefs[count] = 1;
-    coefs[count - 1] = 1;
-    for (int k = 2; k <= count; k++)
-    {
-        coefs[count - k] = 1;
-        uint16_t s, v = k - 1;
-        for (int i = count - k + 2; i <= count; i++)
-        {
-            s = coefs[i - 1];
-            if (!s) continue;
-            s = lutLog[s] + v;
-            coefs[i - 1] = coefs[i] ^ lutExp[s];
-        }
-        s = coefs[count];
-        if (!s) continue;
-        s = lutLog[s] + v;
-        coefs[count] = lutExp[s];
-    }
 }
 
 static inline void GFMulSSE2(__m128i *va, __m128i *vb, __m128i *vz, __m128i *vs, __m128i *vgp)
@@ -186,7 +93,110 @@ static inline void GFMulSSE2(__m128i *va, __m128i *vb, __m128i *vz, __m128i *vs,
     *vb = _mm_xor_si128(*vb, vx);
 }
 
-int __cdecl EncodeSSSE3(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* coefs, uint8_t* buffer)
+int GetLatestSupportedExtension()
+//No: 0; SSSE3: 1; AVX2: 2
+{
+    int info[4], nIds;
+    __cpuidex(info, 0, 0);
+    nIds = info[0];
+    if (nIds >= 7)
+    {
+        __cpuidex(info, 7, 0);
+        if ((info[1] & ((int)1 << 5)) != 0) //AVX2
+            return 2;
+    }
+    else if (nIds >= 1)
+    {
+        __cpuidex(info, 1, 0);
+        if ((info[2] & ((int)1 << 9)) != 0) //SSSE3
+            return 1;
+    }
+    return 0;
+}
+
+void InitSSSE3(uint8_t* coefsu, const uint8_t count, uint8_t* lut)
+{
+    if (count < 2) return;
+	uint64_t offset = (uint64_t)lut & 0xf;
+	if (offset) //Array is not aligned to 16 bytes boundary
+	{
+		offset = 0x10 - offset;
+		lut[0] = (uint8_t)offset; //Store offset
+		lut += offset; //Offset LUT pointer
+	}
+    uint8_t* lutExp = lut + SSE_LUT_EXP_OFFSET, *lutSSE = lut + SSE_LUT_SSE_OFFSET;
+    uint8_t x = 1, index = 0;
+    lutExp[0] = x; //0:255 - log, 256:767 - exp, 768:8960 - sse
+    for (int i = 0; i < 255; i++) {
+        uint8_t y = GFMul3(x, 2);
+        lutExp[++index] = y;
+        lutExp[index + 255] = y;
+        x = y;
+    }
+    lutExp[767] = 0;
+
+    lut[0] = 255; //Log(0) = inf
+    for (int i = 0; i < 256; i++)
+    {
+        lut[lutExp[i]] = i;
+        //Fill SSE "multiply vector to scalar" table
+        uint8_t* usse = lutSSE + i * 32LL, *lsse = usse + 16;
+        for (uint8_t j = 0; j < 16; j++)
+        {
+            *usse++ = GFMul3(j << 4, (uint8_t)i);
+            *lsse++ = GFMul3(j, (uint8_t)i);
+        }
+    }
+    __m128i* lutRev = (__m128i*)(lut + SSE_LUT_REV_OFFSET);
+    __m128i* roots = (__m128i*)lutExp;
+    __m128i vmask = _mm_set1_epi8(0xf);
+    __m128i vlrev = _mm_set_epi8(15, 7, 11, 3, 13, 5, 9, 1, 14, 6, 10, 2, 12, 4, 8, 0);
+    __m128i vhrev = _mm_set_epi8(-16, 112, -80, 48, -48, 80, -112, 16, -32, 96, -96, 32, -64, 64, -128, 0);
+    //Fill table with roots with reverse ordered bits
+    for (int i = 0; i < 256; i += 16)
+    {
+        __m128i a = _mm_loadu_si128(roots++);
+        __m128i c = _mm_and_si128(a, vmask);
+        c = _mm_shuffle_epi8(vhrev, c);
+        a = _mm_srli_epi64(a, 4);
+        a = _mm_and_si128(a, vmask);
+        a = _mm_shuffle_epi8(vlrev, a);
+        a = _mm_or_si128(a, c);
+        _mm_store_si128(lutRev++, a);
+    }
+    _mm_store_si128(lutRev, _mm_setzero_si128()); //Clear next 16 bytes so during unaligned load there will be no random data
+	
+    uint8_t* lutLog = lut;
+	//We need to align array at 16 bytes boundary
+	offset = 0x10 - ((uint64_t)coefsu & 0xf);
+	coefsu[0] = (uint8_t)offset; //Save offset
+	uint8_t* coefs = coefsu + offset - 1; //coefs[0] will be placed outside of aligned array
+	__m128i vz = _mm_setzero_si128();
+	__m128i* cptr = (__m128i*)(coefsu + offset);
+	for (int i = 0; i < MAX_S_SSE / 16; i++) //Clear coefs
+		_mm_store_si128(cptr++, vz);
+	
+    coefs[count] = 1;
+    coefs[count - 1] = 1;
+    for (int k = 2; k <= count; k++)
+    {
+        coefs[count - k] = 1;
+        uint16_t s, v = k - 1;
+        for (int i = count - k + 2; i <= count; i++)
+        {
+            s = coefs[i - 1];
+            if (!s) continue;
+            s = lutLog[s] + v;
+            coefs[i - 1] = coefs[i] ^ lutExp[s];
+        }
+        s = coefs[count];
+        if (!s) continue;
+        s = lutLog[s] + v;
+        coefs[count] = lutExp[s];
+    }
+}
+
+int EncodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* coefs, uint8_t* buffer)
 {
     int length = n - k;
 	if (lut[0] != 0xff) //LUT table requires alignment
@@ -233,7 +243,7 @@ int __cdecl EncodeSSSE3(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* coefs, uint
     memcpy_s(buffer + k, n - k, btemp + k, n - k);
     return 0;
 }
-int __cdecl DecodeSSSE3(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* buffer)
+int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
 {
     int scount = n - k, steps = (scount - 1) >> 4;
 	if (lut[0] != 0xff) //LUT table requires alignment

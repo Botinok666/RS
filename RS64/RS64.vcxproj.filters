@@ -15,22 +15,19 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="RS.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="rsaluflut.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="rs-jp.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
+    <ClInclude Include="rsalu.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="rsssse3.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="rsaluflut.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="rs-jp.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
+    <ClCompile Include="rsalu.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="rsssse3.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>

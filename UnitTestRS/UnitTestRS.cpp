@@ -1,12 +1,12 @@
 #include "pch.h"
 #include "CppUnitTest.h"
-#include "../RS/rsalu.h"
-#include "../RS/rsalu.c"
+#include "../RS64/rsalu.h"
+#include "../RS64/rsalu.c"
 #include <vector>
 //#include "../RS/rsaluflut.h"
 //#include "../RS/rsaluflut.c"
-#include "../RS/rsssse3.h"
-#include "../RS/rsssse3.c"
+#include "../RS64/rsssse3.h"
+#include "../RS64/rsssse3.c"
 #include <random>
 #include <set>
 
@@ -79,7 +79,7 @@ namespace UnitTestRS
 		const std::vector<uint8_t> sdval = { 1, 15, 88, 135, 255 };
 		const int repeats = 16;
 
-		void TestAllOnesOrZeros(uint8_t* Coefs, uint8_t* LUT, void (*FillCoeffs)(uint8_t*, uint8_t, uint8_t*),
+		void TestAllOnesOrZeros(uint8_t* Coefs, uint8_t* LUT, void (*Init)(uint8_t*, uint8_t, uint8_t*),
 			int (*EncodeData)(uint8_t, uint8_t, uint8_t*, uint8_t*, uint8_t*),
 			int (*DecodeData)(uint8_t, uint8_t, uint8_t*, uint8_t*))
 		{
@@ -91,7 +91,7 @@ namespace UnitTestRS
 				{
 					size_t n = i.first, k = i.second;
 					uint8_t t = (uint8_t)((n - k) / 2); //Error capacity
-					FillCoeffs(Coefs, (uint8_t)(n - k), LUT);
+					Init(Coefs, (uint8_t)(n - k), LUT);
 					std::vector<uint8_t> errnom = { (uint8_t)(t / 2), (uint8_t)(t - 1), t };
 					std::vector<uint8_t> fillval = { 0, 0xff };
 
@@ -140,7 +140,7 @@ namespace UnitTestRS
 				}
 			}
 		}
-		void TestSingleByteData(uint8_t* Coefs, uint8_t* LUT, void (*FillCoeffs)(uint8_t*, uint8_t, uint8_t*),
+		void TestSingleByteData(uint8_t* Coefs, uint8_t* LUT, void (*Init)(uint8_t*, uint8_t, uint8_t*),
 			int (*EncodeData)(uint8_t, uint8_t, uint8_t*, uint8_t*, uint8_t*),
 			int (*DecodeData)(uint8_t, uint8_t, uint8_t*, uint8_t*))
 		{
@@ -151,7 +151,7 @@ namespace UnitTestRS
 			{
 				size_t n = i.first, k = i.second;
 				uint8_t t = (uint8_t)((n - k) / 2); //Error capacity
-				FillCoeffs(Coefs, (uint8_t)(n - k), LUT);
+				Init(Coefs, (uint8_t)(n - k), LUT);
 				std::vector<uint8_t> sdpos = { 0, (uint8_t)(k / 2), (uint8_t)(k - 1) };
 				std::vector<uint8_t> errnom = { (uint8_t)(t / 2), (uint8_t)(t - 1), t };
 
@@ -209,7 +209,7 @@ namespace UnitTestRS
 				}
 			}
 		}
-		void TestRandomData(uint8_t* Coefs, uint8_t* LUT, void (*FillCoeffs)(uint8_t*, uint8_t, uint8_t*),
+		void TestRandomData(uint8_t* Coefs, uint8_t* LUT, void (*Init)(uint8_t*, uint8_t, uint8_t*),
 			int (*EncodeData)(uint8_t, uint8_t, uint8_t*, uint8_t*, uint8_t*),
 			int (*DecodeData)(uint8_t, uint8_t, uint8_t*, uint8_t*))
 		{
@@ -223,7 +223,7 @@ namespace UnitTestRS
 					size_t n = i.first, k = i.second;
 					uint8_t t = (uint8_t)((n - k) / 2); //Error capacity
 
-					FillCoeffs(Coefs, (uint8_t)(n - k), LUT);
+					Init(Coefs, (uint8_t)(n - k), LUT);
 					std::vector<uint8_t> errnom = { (uint8_t)(t / 2), (uint8_t)(t - 1), t };
 
 					for (int p = 0; p < k; p++)
@@ -278,78 +278,43 @@ namespace UnitTestRS
 		TEST_METHOD(TestAllOnesOrZerosALU)
 		{
 			uint8_t lut[ALU_LUT_SIZE];
-			uint8_t coefs[COEFS_SIZE_ALU];
-			FillRLUT(lut);
-			TestAllOnesOrZeros(coefs, lut, &FillCoefficents, &Encode, &Decode);
+			uint8_t coefs[ALU_COEFS_SIZE];
+			TestAllOnesOrZeros(coefs, lut, &InitALU, &EncodeALU, &DecodeALU);
 		}
 
 		TEST_METHOD(TestSingleByteDataALU)
 		{
 			uint8_t lut[ALU_LUT_SIZE];
-			uint8_t coefs[COEFS_SIZE_ALU];
-			FillRLUT(lut);
-			TestSingleByteData(coefs, lut, &FillCoefficents, &Encode, &Decode);
+			uint8_t coefs[ALU_COEFS_SIZE];
+			TestSingleByteData(coefs, lut, &InitALU, &EncodeALU, &DecodeALU);
 		}		
 
 		TEST_METHOD(TestRandomDataALU)
 		{
 			uint8_t lut[ALU_LUT_SIZE];
-			uint8_t coefs[COEFS_SIZE_ALU];
-			FillRLUT(lut);
-			TestRandomData(coefs, lut, &FillCoefficents, &Encode, &Decode);
+			uint8_t coefs[ALU_COEFS_SIZE];
+			TestRandomData(coefs, lut, &InitALU, &EncodeALU, &DecodeALU);
 		}
 
-		//TEST_METHOD(TestAllOnesOrZerosALUFL)
-		//{
-		//	uint8_t* flut = new uint8_t[FULL_LUT_SIZE];
-		//	FillFLUT(flut);
-		//	uint8_t coefs[COEFS_SIZE_FLUT];
-		//	TestAllOnesOrZeros(coefs, flut, &FillCoefficentsFL, &EncodeFL, &DecodeFL);
-		//	delete[] flut;
-		//}
-
-		//TEST_METHOD(TestSingleByteDataALUFL)
-		//{
-		//	uint8_t* flut = new uint8_t[FULL_LUT_SIZE];
-		//	FillFLUT(flut);
-		//	uint8_t coefs[COEFS_SIZE_FLUT];
-		//	TestSingleByteData(coefs, flut, &FillCoefficentsFL, &EncodeFL, &DecodeFL);
-		//	delete[] flut;
-		//}
-		//
-		//TEST_METHOD(TestRandomDataALUFL)
-		//{
-		//	uint8_t* flut = new uint8_t[FULL_LUT_SIZE];
-		//	FillFLUT(flut);
-		//	uint8_t coefs[COEFS_SIZE_FLUT];
-		//	TestRandomData(coefs, flut, &FillCoefficentsFL, &EncodeFL, &DecodeFL);
-		//	delete[] flut;
-		//}
 		TEST_METHOD(TestAllOnesOrZerosSSSE3)
 		{
-			uint8_t* luts = new uint8_t[SSE_LUT_SIZE];
-			FillSSELUT(luts);
-			uint8_t coefs[COEFS_SIZE_SSE];
-			TestAllOnesOrZeros(coefs, luts, &FillCoefficentsSSE, &EncodeSSSE3, &DecodeSSSE3);
-			delete[] luts;
+			uint8_t luts[SSE_LUT_SIZE];
+			uint8_t coefs[SSE_COEFS_SIZE];
+			TestAllOnesOrZeros(coefs, luts, &InitSSSE3, &EncodeSSSE3, &DecodeSSSE3);
 		}
 
 		TEST_METHOD(TestSingleByteDataSSSE3)
 		{
-			uint8_t* luts = new uint8_t[SSE_LUT_SIZE];
-			FillSSELUT(luts);
-			uint8_t coefs[COEFS_SIZE_SSE];
-			TestSingleByteData(coefs, luts, &FillCoefficentsSSE, &EncodeSSSE3, &DecodeSSSE3);
-			delete[] luts;
+			uint8_t luts[SSE_LUT_SIZE];
+			uint8_t coefs[SSE_COEFS_SIZE];
+			TestSingleByteData(coefs, luts, &InitSSSE3, &EncodeSSSE3, &DecodeSSSE3);
 		}
 		
 		TEST_METHOD(TestRandomDataSSSE3)
 		{
-			uint8_t* luts = new uint8_t[SSE_LUT_SIZE];
-			FillSSELUT(luts);
-			uint8_t coefs[COEFS_SIZE_SSE];
-			TestRandomData(coefs, luts, &FillCoefficentsSSE, &EncodeSSSE3, &DecodeSSSE3);
-			delete[] luts;
+			uint8_t luts[SSE_LUT_SIZE];
+			uint8_t coefs[SSE_COEFS_SIZE];
+			TestRandomData(coefs, luts, &InitSSSE3, &EncodeSSSE3, &DecodeSSSE3);
 		}
 	};
 }

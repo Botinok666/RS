@@ -1,6 +1,5 @@
-#define ERROR_CHECKING
 #include "rsalu.h"
-
+#define ERROR_CHECKING
 // Slow multiply, using shifting
 // Polynomial x^8 + x^4 + x^3 + x^2 + 1
 uint8_t GFMul(uint8_t a, uint8_t b)
@@ -19,10 +18,12 @@ uint8_t GFMul(uint8_t a, uint8_t b)
     return r;
 }
 
-// Fill the Exp/Log table
-void FillRLUT(uint8_t* LUT) {
+void InitALU(uint8_t* Coefs, const uint8_t count, uint8_t* lut)
+{
+    if (count < 2) return;
+
+    uint16_t* lutExp = (uint16_t*)lut + ALU_LUT_EXP_OFFSET, * lutLog = (uint16_t*)lut, * coefs = (uint16_t*)Coefs;
     uint8_t x = 1, index = 0;
-    uint16_t* lutExp = (uint16_t*)LUT + ALU_LUT_EXP_OFFSET, * lutLog = (uint16_t*)LUT;
     lutExp[0] = x; //0:255 - log, 256:767 - exp, 768:1792 - zero
     for (int i = 0; i < 255; i++) {
         uint8_t y = GFMul(x, 2);
@@ -34,12 +35,7 @@ void FillRLUT(uint8_t* LUT) {
     for (int i = 0; i < 255; i++)
         lutLog[lutExp[i]] = i;
     memset(lutExp + 511, 0, 1025);
-}
-void FillCoefficents(uint8_t* Coefs, const uint8_t count, uint8_t* lut)
-{
-    if (count < 2) return;
-
-    uint16_t* lutExp = (uint16_t*)lut + ALU_LUT_EXP_OFFSET, * lutLog = (uint16_t*)lut, * coefs = (uint16_t*)Coefs;
+    //Calculate coefficients
     coefs[count] = lutExp[0];
     coefs[count - 1] = 1;
     for (int k = 2; k <= count; k++)
@@ -57,7 +53,7 @@ void FillCoefficents(uint8_t* Coefs, const uint8_t count, uint8_t* lut)
     for (int j = 0; j <= count; j++)
         coefs[j] = lutLog[coefs[j]];
 }
-int __cdecl Encode(const uint8_t n, const uint8_t k, uint8_t* LUT, uint8_t* Coefs, uint8_t* buffer)
+int EncodeALU(const uint8_t n, const uint8_t k, uint8_t* LUT, uint8_t* Coefs, uint8_t* buffer)
 {
     int length = n - k + 1;
     uint16_t* lutExp = (uint16_t*)LUT + ALU_LUT_EXP_OFFSET, *lutLog = (uint16_t*)LUT;
@@ -78,7 +74,7 @@ int __cdecl Encode(const uint8_t n, const uint8_t k, uint8_t* LUT, uint8_t* Coef
     memcpy_s(buffer + k, n - k, btemp + k, n - k);
     return 0;
 }
-int __cdecl Decode(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
+int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
 {
     int scount = n - k;
     uint16_t* lutExp = (uint16_t*)lut + ALU_LUT_EXP_OFFSET, * lutLog = (uint16_t*)lut;

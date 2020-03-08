@@ -7,8 +7,8 @@
 #include <random>
 #include <windows.h>
 #include <set>
-#include "rsalu.h"
-#include "rsssse3.h"
+#include "..\RS64\rsalu.h"
+#include "..\RS64\rsssse3.h"
 
 #include "rs-jp.h"
 #include <intrin.h>
@@ -142,18 +142,16 @@ void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
     std::cout << "File opened, size " << size << std::endl;
 
     uint8_t lut[ALU_LUT_SIZE];
-    FillRLUT(lut);
-    uint8_t coefs[COEFS_SIZE_ALU];
-    FillCoefficents(coefs, (uint8_t)(n - k), lut);
+    uint8_t coefs[ALU_COEFS_SIZE];
+    InitALU(coefs, (uint8_t)(n - k), lut);
 
     uint8_t luts[SSE_LUT_SIZE];
-    FillSSELUT(luts);
-    uint8_t coefsSSE[COEFS_SIZE_SSE];
-    FillCoefficentsSSE(coefsSSE, (uint8_t)(n - k), luts);
+    uint8_t coefsSSE[SSE_COEFS_SIZE];
+    InitSSSE3(coefsSSE, (uint8_t)(n - k), luts);
 
     std::cout << "\nTesting ALU\n";
     std::cout << std::setprecision(4);
-    BenchmarkTests(n, k, size, memblock, outblock, coefs, lut, &Encode, &Decode);
+    BenchmarkTests(n, k, size, memblock, outblock, coefs, lut, &EncodeALU, &DecodeALU);
     int check = memcmp(memblock, origblock, size);
     std::cout << "Data integrity check " << (check ? "failed\n" : "OK\n");
 
@@ -185,9 +183,8 @@ void TestWithManyErrors(uint8_t n, uint8_t k, uint8_t ta, int rounds)
     uint8_t buffer[255], orig[255], origErr[255];
 
     uint8_t luts[SSE_LUT_SIZE];
-    FillSSELUT(luts);
-    uint8_t coefsSSE[COEFS_SIZE_SSE];
-    FillCoefficentsSSE(coefsSSE, (uint8_t)(n - k), luts);
+    uint8_t coefsSSE[SSE_COEFS_SIZE];
+    InitSSSE3(coefsSSE, (uint8_t)(n - k), luts);
 
     int ecount[53]; //For returned values in range [-4;48]
     memset(ecount, 0, 53 * sizeof(int));
@@ -263,9 +260,6 @@ int main()
     std::cout << "\nt = 48\n";
     RunBenchmark(255, 159, "C:\\Intel\\meatloaf.jpg"); //t=48
     return 0;
-
-    FillRLUT(lut);
-    FillSSELUT(luts);
     
     uint8_t n = 255, k = 249;
     //uint8_t buffer[15] = { 11, 12, 13, 14, 15, 16, 17, 0, 0, 0, 21, 0, 0, 0, 0 }; //15, 11
@@ -273,11 +267,11 @@ int main()
     memset(buffer, 0, n);
     buffer[0] = 127;
     //uint8_t buffer2[15] = { 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-    uint8_t coefs[COEFS_SIZE_ALU];
-    FillCoefficents(coefs, n - k, lut);
+    uint8_t coefs[ALU_COEFS_SIZE];
+    InitALU(coefs, n - k, lut);
 
-    uint8_t coefsSL[COEFS_SIZE_SSE];
-    FillCoefficentsSSE(coefsSL, n - k, luts);
+    uint8_t coefsSL[SSE_COEFS_SIZE];
+    InitSSSE3(coefsSL, n - k, luts);
 
     init_rs(k);
 
@@ -290,7 +284,7 @@ int main()
     std::cout << std::endl;
 
     memcpy_s(buffer, n, orig, n);
-    std::cout << "Check remainder: " << (Decode(n, k, lut, buffer) ? "fail" : "OK") << std::endl;
+    std::cout << "Check remainder: " << (DecodeALU(n, k, lut, buffer) ? "fail" : "OK") << std::endl;
     int dec;
 
     memset(buffer, 0, n);
