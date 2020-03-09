@@ -2,11 +2,11 @@
 #include <stdint.h>
 #include <string.h>
 
-#define MAX_S_ALU 96LL
 #define ALU_LUT_EXP_OFFSET	256LL
 
-__declspec(dllexport) const long long ALU_LUT_SIZE = 3584;
-__declspec(dllexport) const long long ALU_COEFS_SIZE = 2 * (MAX_S_ALU + 1);
+#define MAX_S_ALU 96LL
+#define ALU_LUT_SIZE 3584LL
+#define ALU_COEFS_SIZE (2 * (MAX_S_ALU + 1))
 #ifdef __cplusplus
 extern "C" {
 #endif 

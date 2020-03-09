@@ -2,12 +2,12 @@
 #include <stdint.h>
 #include <string.h>
 
-#define MAX_S_SSE 96LL
 #define SSE_LUT_EXP_OFFSET 256LL
 #define SSE_LUT_SSE_OFFSET 768LL
 #define SSE_LUT_REV_OFFSET 8960LL
-__declspec(dllexport) const long long SSE_LUT_SIZE = 9248;
-__declspec(dllexport) const long long SSE_COEFS_SIZE = MAX_S_SSE + 16;
+#define MAX_S_SSE 96LL
+#define SSE_LUT_SIZE 9248LL
+#define SSE_COEFS_SIZE (MAX_S_SSE + 16)
 #ifdef __cplusplus
 extern "C" {
 #endif 

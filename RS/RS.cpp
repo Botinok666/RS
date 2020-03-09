@@ -7,8 +7,7 @@
 #include <random>
 #include <windows.h>
 #include <set>
-#include "..\RS64\rsalu.h"
-#include "..\RS64\rsssse3.h"
+#include "rs64.h"
 
 #include "rs-jp.h"
 #include <intrin.h>
@@ -242,6 +241,13 @@ uint8_t luts[SSE_LUT_SIZE];
 int main()
 {
     std::cout << "Hello World!\n";
+    int ext = GetLatestSupportedExtension();
+    if (ext == 2)
+        std::cout << "AVX2 is supported\n";
+    else if (ext == 1)
+        std::cout << "Only SSSE3 is supported\n";
+    else
+        std::cout << "Shouldn't be here\n";
 
     //for (int xt = 8; xt <= 32; xt += 8)
     //{

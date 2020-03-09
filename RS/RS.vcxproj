@@ -157,6 +157,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="rs-jp.h" />
+    <ClInclude Include="rs64.h" />
     <ClInclude Include="rsaluflut.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

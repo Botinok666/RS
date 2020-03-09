@@ -32,5 +32,8 @@
     <ClInclude Include="rs-jp.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="rs64.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
