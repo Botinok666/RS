@@ -1,5 +1,6 @@
 #include <intrin.h>
 #include "rsssse3.h"
+//#include <stdio.h>
 #define ERROR_CHECKING
 // Slow multiply, using shifting
 // Polynomial x^8 + x^4 + x^3 + x^2 + 1
@@ -19,95 +20,25 @@ uint8_t GFMul3(uint8_t a, uint8_t b)
     return r;
 }
 
-static inline void GFMulSSE2(__m128i *va, __m128i *vb, __m128i *vz, __m128i *vs, __m128i *vgp)
-{
-    __m128i vx = _mm_cmpgt_epi8(*vz, *va);
-    vx = _mm_and_si128(vx, *vb);
-    *vs = _mm_xor_si128(*vs, vx);
-    vx = _mm_cmpgt_epi8(*vz, *vb);
-    vx = _mm_and_si128(vx, *vgp);
-    *vb = _mm_add_epi8(*vb, *vb);
-    *vb = _mm_xor_si128(*vb, vx);
-    *va = _mm_add_epi8(*va, *va);
-
-    vx = _mm_cmpgt_epi8(*vz, *va);
-    vx = _mm_and_si128(vx, *vb);
-    *vs = _mm_xor_si128(*vs, vx);
-    vx = _mm_cmpgt_epi8(*vz, *vb);
-    vx = _mm_and_si128(vx, *vgp);
-    *vb = _mm_add_epi8(*vb, *vb);
-    *vb = _mm_xor_si128(*vb, vx);
-    *va = _mm_add_epi8(*va, *va);
-
-    vx = _mm_cmpgt_epi8(*vz, *va);
-    vx = _mm_and_si128(vx, *vb);
-    *vs = _mm_xor_si128(*vs, vx);
-    vx = _mm_cmpgt_epi8(*vz, *vb);
-    vx = _mm_and_si128(vx, *vgp);
-    *vb = _mm_add_epi8(*vb, *vb);
-    *vb = _mm_xor_si128(*vb, vx);
-    *va = _mm_add_epi8(*va, *va);
-
-    vx = _mm_cmpgt_epi8(*vz, *va);
-    vx = _mm_and_si128(vx, *vb);
-    *vs = _mm_xor_si128(*vs, vx);
-    vx = _mm_cmpgt_epi8(*vz, *vb);
-    vx = _mm_and_si128(vx, *vgp);
-    *vb = _mm_add_epi8(*vb, *vb);
-    *vb = _mm_xor_si128(*vb, vx);
-    *va = _mm_add_epi8(*va, *va);
-
-    vx = _mm_cmpgt_epi8(*vz, *va);
-    vx = _mm_and_si128(vx, *vb);
-    *vs = _mm_xor_si128(*vs, vx);
-    vx = _mm_cmpgt_epi8(*vz, *vb);
-    vx = _mm_and_si128(vx, *vgp);
-    *vb = _mm_add_epi8(*vb, *vb);
-    *vb = _mm_xor_si128(*vb, vx);
-    *va = _mm_add_epi8(*va, *va);
-
-    vx = _mm_cmpgt_epi8(*vz, *va);
-    vx = _mm_and_si128(vx, *vb);
-    *vs = _mm_xor_si128(*vs, vx);
-    vx = _mm_cmpgt_epi8(*vz, *vb);
-    vx = _mm_and_si128(vx, *vgp);
-    *vb = _mm_add_epi8(*vb, *vb);
-    *vb = _mm_xor_si128(*vb, vx);
-    *va = _mm_add_epi8(*va, *va);
-
-    vx = _mm_cmpgt_epi8(*vz, *va);
-    vx = _mm_and_si128(vx, *vb);
-    *vs = _mm_xor_si128(*vs, vx);
-    vx = _mm_cmpgt_epi8(*vz, *vb);
-    vx = _mm_and_si128(vx, *vgp);
-    *vb = _mm_add_epi8(*vb, *vb);
-    *vb = _mm_xor_si128(*vb, vx);
-    *va = _mm_add_epi8(*va, *va);
-
-    vx = _mm_cmpgt_epi8(*vz, *va);
-    vx = _mm_and_si128(vx, *vb);
-    *vs = _mm_xor_si128(*vs, vx);
-}
-
 int GetLatestSupportedExtension()
-//No: 0; SSSE3: 1; AVX2: 2
+//No: 0; SSSE3: 1; AVX2: 3
 {
-    int info[4], nIds;
+    int info[4], nIds, result = 0;
     __cpuidex(info, 0, 0);
     nIds = info[0];
+    if (nIds >= 1)
+    {
+        __cpuidex(info, 1, 0);
+        if ((info[2] & ((int)1 << 9)) != 0) //SSSE3
+            result |= 1;
+    }
     if (nIds >= 7)
     {
         __cpuidex(info, 7, 0);
         if ((info[1] & ((int)1 << 5)) != 0) //AVX2
-            return 2;
+            result |= 2;
     }
-    else if (nIds >= 1)
-    {
-        __cpuidex(info, 1, 0);
-        if ((info[2] & ((int)1 << 9)) != 0) //SSSE3
-            return 1;
-    }
-    return 0;
+    return result;
 }
 
 void InitSSSE3(uint8_t* coefsu, const uint8_t count, uint8_t* lut)
@@ -143,34 +74,26 @@ void InitSSSE3(uint8_t* coefsu, const uint8_t count, uint8_t* lut)
             *lsse++ = GFMul3(j, (uint8_t)i);
         }
     }
-    __m128i* lutRev = (__m128i*)(lut + SSE_LUT_REV_OFFSET);
-    __m128i* roots = (__m128i*)lutExp;
-    __m128i vmask = _mm_set1_epi8(0xf);
-    __m128i vlrev = _mm_set_epi8(15, 7, 11, 3, 13, 5, 9, 1, 14, 6, 10, 2, 12, 4, 8, 0);
-    __m128i vhrev = _mm_set_epi8(-16, 112, -80, 48, -48, 80, -112, 16, -32, 96, -96, 32, -64, 64, -128, 0);
-    //Fill table with roots with reverse ordered bits
-    for (int i = 0; i < 256; i += 16)
+    
+    __declspec(align(16)) uint8_t rtemp[256], restmp[256];
+    memcpy_s(rtemp, 256, lutExp, 256); //Copy roots
+    memset(restmp, 1, 256); //Set result initially to 1
+    uint8_t* lutRoots = lut + SSE_LUT_ROOTS_OFFSET;
+    for (int j = 0; j < 255; j++)
     {
-        __m128i a = _mm_loadu_si128(roots++);
-        __m128i c = _mm_and_si128(a, vmask);
-        c = _mm_shuffle_epi8(vhrev, c);
-        a = _mm_srli_epi64(a, 4);
-        a = _mm_and_si128(a, vmask);
-        a = _mm_shuffle_epi8(vlrev, a);
-        a = _mm_or_si128(a, c);
-        _mm_store_si128(lutRev++, a);
+        for (int i = 0; i < 256; i++)
+            restmp[i] = GFMul3(restmp[i], rtemp[i]);
+        memcpy_s(lutRoots, 256, restmp, 256);
+        lutRoots += 256;
     }
-    _mm_store_si128(lutRev, _mm_setzero_si128()); //Clear next 16 bytes so during unaligned load there will be no random data
-	
+    memset(lutRoots, 0, 16); //Clear next 16 bytes so during unaligned load there will be no random data
+
     uint8_t* lutLog = lut;
 	//We need to align array at 16 bytes boundary
 	offset = 0x10 - ((uint64_t)coefsu & 0xf);
 	coefsu[0] = (uint8_t)offset; //Save offset
 	uint8_t* coefs = coefsu + offset - 1; //coefs[0] will be placed outside of aligned array
-	__m128i vz = _mm_setzero_si128();
-	__m128i* cptr = (__m128i*)(coefsu + offset);
-	for (int i = 0; i < SSE_COEFS_SIZE / 16; i++) //Clear coefs
-		_mm_store_si128(cptr++, vz);
+    memset(coefs, 0, MAX_T * 2);
 	
     coefs[count] = 1;
     coefs[count - 1] = 1;
@@ -190,6 +113,16 @@ void InitSSSE3(uint8_t* coefsu, const uint8_t count, uint8_t* lut)
         s = lutLog[s] + v;
         coefs[count] = lutExp[s];
     }
+}
+
+static inline void GF_mvs_SSSE3(__m128i* vio, __m128i* vt, __m128i* vmask, __m128i* lmul, __m128i* umul)
+{
+    *vio = _mm_and_si128(*vt, *vmask); //Lower 4 bits
+    *vio = _mm_shuffle_epi8(*lmul, *vio); //Multiply lower 4 bits
+    *vt = _mm_srli_epi64(*vt, 4);
+    *vt = _mm_and_si128(*vt, *vmask); //Upper 4 bits
+    *vt = _mm_shuffle_epi8(*umul, *vt); //Multiply upper 4 bits
+    *vt = _mm_xor_si128(*vt, *vio); //Result of multiplication
 }
 
 int EncodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* coefs, uint8_t* buffer)
@@ -223,13 +156,8 @@ int EncodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* coefs, 
         __m128i* cl = (__m128i*)coefs;
         for (int l = 0; l <= length; l++)
         {
-            __m128i ucoefs = _mm_load_si128(cl++);
-            __m128i lcoefs = _mm_and_si128(ucoefs, vmask); //Lower 4 bits
-            lcoefs = _mm_shuffle_epi8(lmul, lcoefs); //Multiply lower 4 bits
-            ucoefs = _mm_srli_epi64(ucoefs, 4);
-            ucoefs = _mm_and_si128(ucoefs, vmask); //Upper 4 bits
-            ucoefs = _mm_shuffle_epi8(umul, ucoefs); //Multiply upper 4 bits
-            ucoefs = _mm_xor_si128(ucoefs, lcoefs); //Result of multiplication
+            __m128i ucoefs = _mm_load_si128(cl++), lcoefs;
+            GF_mvs_SSSE3(&lcoefs, &ucoefs, &vmask, &lmul, &umul);
 
             lcoefs = _mm_loadu_si128(ol);
             lcoefs = _mm_xor_si128(lcoefs, ucoefs);
@@ -256,27 +184,38 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
 	__m128i vz = _mm_setzero_si128();
 	_mm_store_si128((__m128i*)lambda, vz);
     memset(lambda, 0xff, scount & 0xf); //Temporal storage for root mask
-    __m128i vgp = _mm_set1_epi8(0x1d); //Generator polynomial
-    __m128i* lrev = (__m128i*)(lut + SSE_LUT_REV_OFFSET);
-    __m128i* vsyn = (__m128i*)syn;
+    memset(syn, buffer[n - 1], MAX_T * 2);
+    __m128i* lroots = (__m128i*)(lut + SSE_LUT_ROOTS_OFFSET);
+    __m128i* ls = (__m128i*)syn;
+    __m128i vmask = _mm_set1_epi8(0xf);
+    for (int j = n - 2; j >= 0; j--)
+    {
+        int idx = buffer[j] * 32;
+        __m128i* lutv = (__m128i*)(lutSSE + idx);
+        __m128i umul = _mm_load_si128(lutv);
+        __m128i lmul = _mm_load_si128(lutv + 1);
+
+        __m128i* lr = lroots;
+        for (int m = 0; m <= steps; m++)
+        {
+            __m128i vio = _mm_load_si128(lr++), vt;
+            //Multiply: {roots}^(n - j) * buffer[j]
+            GF_mvs_SSSE3(&vt, &vio, &vmask, &lmul, &umul);
+            vt = _mm_load_si128(ls);
+            vt = _mm_xor_si128(vt, vio);
+            _mm_store_si128(ls++, vt);
+        }
+        ls = (__m128i*)syn;
+        lroots += 16; //Hard to explain
+    }
+    //Check syndromes we've got
+    ls = (__m128i*)syn;
     for (int j = 0; j <= steps; j++)
     {
-        __m128i vroot = _mm_load_si128(lrev++);
-        __m128i vs = vz;
-        uint8_t* inm = buffer;
-        for (int m = 0; m < n - 1; m++)
-        {
-            __m128i va = vroot;
-            __m128i vb = _mm_xor_si128(vs, _mm_set1_epi8(*inm++)); //s ^= in[m]
-            //Perform full multiplication: s *= root, or s = b * root
-            vs = vz; //Clear s
-            GFMulSSE2(&va, &vb, &vz, &vs, &vgp);
-        }
-        vs = _mm_xor_si128(vs, _mm_set1_epi8(*inm));
+        __m128i vs = _mm_load_si128(ls++);
         if (j == steps && lambda[0]) //Non-zero lambda[0] means that scount % 0xf != 0
             vs = _mm_and_si128(vs, _mm_load_si128((__m128i*)lambda));
         hasNoErrors &= _mm_movemask_epi8(_mm_cmpeq_epi8(vs, vz));
-        _mm_store_si128(vsyn++, vs);
     }
     if (hasNoErrors == 0xffff) return 0;
 
@@ -292,7 +231,6 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
     b[1] = 1;
     lambda[0] = 1;
     int l = 0;
-    __m128i vmask = _mm_set1_epi8(0xf);
     for (int r = 1; r <= scount; r++)
     {
         uint8_t* si = syn + r - 1, *li = lambda;
@@ -321,14 +259,9 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
 			__m128i* mvec = (__m128i*)Lm;
             for (int m = 0; m <= sr; m++)
             {
-				__m128i vx = _mm_load_si128(bvec++);
+				__m128i vx = _mm_load_si128(bvec++), vxl;
 				//Multiply vector b by scalar delta
-				__m128i vxl = _mm_and_si128(vx, vmask); //Lower 4 bits
-				vxl = _mm_shuffle_epi8(lmul, vxl); //Multiply lower 4 bits
-				vx = _mm_srli_epi64(vx, 4);
-				vx = _mm_and_si128(vx, vmask); //Upper 4 bits
-				vx = _mm_shuffle_epi8(umul, vx); //Multiply upper 4 bits
-				vx = _mm_xor_si128(vx, vxl); //Result of multiplication
+                GF_mvs_SSSE3(&vxl, &vx, &vmask, &lmul, &umul);
 
 				vxl = _mm_load_si128(lvec);
 				_mm_store_si128(mvec++, vxl); //Copy lambda to Lm
@@ -348,14 +281,9 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
 				mvec = (__m128i*)Lm;
 				for (int m = 0; m <= sr; m++)
 				{
-					__m128i vx = _mm_load_si128(mvec++);
+					__m128i vx = _mm_load_si128(mvec++), vt;
 					//Multiply vector Lm by scalar delta^-1
-					__m128i vxl = _mm_and_si128(vx, vmask); //Lower 4 bits
-					vxl = _mm_shuffle_epi8(lmul, vxl); //Multiply lower 4 bits
-					vx = _mm_srli_epi64(vx, 4);
-					vx = _mm_and_si128(vx, vmask); //Upper 4 bits
-					vx = _mm_shuffle_epi8(umul, vx); //Multiply upper 4 bits
-					vx = _mm_xor_si128(vx, vxl); //Result of multiplication
+                    GF_mvs_SSSE3(&vt, &vx, &vmask, &lmul, &umul);
 
 					_mm_store_si128(bvec++, vx); //Save result to b
 				}
@@ -409,7 +337,7 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
     }
 
     /* Chien search
-    We need to substitute x[] to labmda(x), where x[] = x^-n+1, x^-n+2, ..., 1 = x^256-n, x^256-n+1, ..., 1 */
+    We need to substitute x[] to lambda(x), where x[] = x^-n+1, x^-n+2, ..., 1 = x^256-n, x^256-n+1, ..., 1 */
 #ifdef ERROR_CHECKING
     steps = (n - 1) >> 4;
     uint8_t efound = 0, ecorr = 0;
@@ -417,60 +345,57 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
     steps = (k - 1) >> 4;
 #endif // ERROR_CHECKING
 
-    lrev = (__m128i*)(lut + SSE_LUT_REV_OFFSET + 256 - n);
-    for (int j = 0; j <= steps; j++)
+    __declspec(align(16)) uint8_t rtemp[256];
+    memset(rtemp, 1, n);
+    uint8_t* roots = lut + SSE_LUT_ROOTS_OFFSET + 256 - n;
+    for (int j = 0; j < nerr; j++)
     {
-        uint8_t* li = lambda + nerr;
-        __m128i vs = _mm_set1_epi8(*li--); //s = lambda[nerr]
-        __m128i vroot = _mm_loadu_si128(lrev++);
-        for (int m = 0; m < nerr; m++)
-        {
-            __m128i va = vroot;
-            __m128i vb = vs;
-            //Perform full multiplication: s *= root, or s = b * root
-            vs = vz;
-            GFMulSSE2(&va, &vb, &vz, &vs, &vgp);
-            va = _mm_set1_epi8(*li--);
-            vs = _mm_xor_si128(vs, va); //s ^= lambda[nerr - m]
-        }
-        vs = _mm_cmpeq_epi8(vs, vz);
-        int mask = _mm_movemask_epi8(vs), kv = j << 4;
-        while (mask)
-        {
-            if (mask & 1)
-            {
-#ifdef ERROR_CHECKING
-                if (kv < k) {
-#endif // ERROR_CHECKING
-                    int xIdx = 256 - n + kv;
-                    uint8_t s = 0, y = omega[0];
-                    for (int l = 1; l <= nerr; l++)
-                    {
-                        int ecx = xIdx * l;
-                        ecx = (ecx >> 8) + (ecx & 0xff);
-                        ecx = (ecx >> 8) + (ecx & 0xff);
-                        if (omega[l])
-                            y ^= lutExp[ecx + lutLog[omega[l]]]; //Omega(X^-1)
-                        if ((l & 1) && lambda[l])
-                            s ^= lutExp[ecx + lutLog[lambda[l]]]; //Lambda'(X^-1) * X^-1
-                    }
-                    if (!s) return -4;
+        int idx = lambda[j + 1] * 32;
+        __m128i* lutv = (__m128i*)(lutSSE + idx);
+        __m128i umul = _mm_load_si128(lutv);
+        __m128i lmul = _mm_load_si128(lutv + 1);
 
-                    s = 255 - lutLog[s];
-                    s = lutExp[s + lutLog[y]];
-#ifdef ERROR_CHECKING
-                    b[ecorr] = (uint8_t)kv;
-                    Lm[ecorr++] = s;
-                }
-                efound++;
-#else
-                buffer[kv] ^= s;
-#endif // ERROR_CHECKING
+        __m128i* lr = (__m128i*)roots;
+        ls = (__m128i*)rtemp;
+        for (int m = 0; m <= steps; m++)
+        {
+            __m128i vio = _mm_loadu_si128(lr++), vt;
+            //Multiply: {roots}^(n - j) * buffer[j]
+            GF_mvs_SSSE3(&vt, &vio, &vmask, &lmul, &umul);
+            vt = _mm_load_si128(ls);
+            vt = _mm_xor_si128(vt, vio);
+            _mm_store_si128(ls++, vt);
+        }
+        roots += 256; //Hard to explain
+    }
+    //Check what we've calculated
+    for (int j = 0; j < n; j++)
+    {
+        if (rtemp[j]) continue;
+        efound++;
+        if (j < k) 
+        {
+            int xIdx = 256 - n + j;
+            uint8_t s = 0, y = omega[0];
+            for (int l = 1; l <= nerr; l++)
+            {
+                int ecx = xIdx * l;
+                ecx = (ecx >> 8) + (ecx & 0xff);
+                ecx = (ecx >> 8) + (ecx & 0xff);
+                if (omega[l])
+                    y ^= lutExp[ecx + lutLog[omega[l]]]; //Omega(X^-1)
+                if ((l & 1) && lambda[l])
+                    s ^= lutExp[ecx + lutLog[lambda[l]]]; //Lambda'(X^-1) * X^-1
             }
-            mask >>= 1;
-            kv++;
+            if (!s) return -4;
+
+            s = 255 - lutLog[s];
+            s = lutExp[s + lutLog[y]];
+            b[ecorr] = (uint8_t)j;
+            Lm[ecorr++] = s;
         }
     }
+    
 #ifdef ERROR_CHECKING
     if (efound != nerr)
         return -3;

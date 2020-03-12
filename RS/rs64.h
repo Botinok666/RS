@@ -3,7 +3,7 @@
 #define MAX_T 48
 #define ALU_LUT_SIZE 3584LL
 #define ALU_COEFS_SIZE (2 * (2 * MAX_T + 1))
-#define SSE_LUT_SIZE 9248LL
+#define SSE_LUT_SIZE (8960 + 256 * 255 + 16)// 9248LL
 #define SSE_COEFS_SIZE (2 * MAX_T + 16)
 #ifdef __cplusplus
 extern "C" {

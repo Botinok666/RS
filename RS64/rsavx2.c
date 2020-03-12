@@ -400,7 +400,7 @@ int DecodeAVX2(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
     steps = (k - 1) >> 4;
 #endif // ERROR_CHECKING
 
-    lrev = (__m128i*)(lut + SSE_LUT_REV_OFFSET + 256 - n);
+    lrev = (__m256i*)(lut + SSE_LUT_REV_OFFSET + 256 - n);
     for (int j = 0; j <= steps; j++)
     {
         uint8_t* li = lambda + nerr;

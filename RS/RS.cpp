@@ -145,7 +145,7 @@ void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
     std::cout << "File opened, size " << size << std::endl;
     if (results.is_open())
     {
-        results << "RS(" << (int)n << ", " << (int)k << "), file size " << (size >> 10) << "Kb\n";
+        results << "\nRS(" << (int)n << ", " << (int)k << "), file size " << (size >> 10) << "Kb\n";
         results << "Coder\tEncode, ms\tClear decode, ms\tDecode, ms";
     }
 
@@ -153,7 +153,7 @@ void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
     uint8_t coefs[ALU_COEFS_SIZE];
     InitALU(coefs, (uint8_t)(n - k), lut);
 
-    uint8_t luts[SSE_LUT_SIZE];
+    uint8_t* luts = new uint8_t[SSE_LUT_SIZE];
     uint8_t coefsSSE[SSE_COEFS_SIZE];
     InitSSSE3(coefsSSE, (uint8_t)(n - k), luts);
 
@@ -185,7 +185,7 @@ void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
     check = memcmp(memblock, origblock, size);
     std::cout << "Data integrity check " << (check ? "failed\n" : "OK\n");
 
-    delete[] memblock, outblock, origblock;
+    delete[] memblock, outblock, origblock, luts;
 }
 
 void TestWithManyErrors(uint8_t n, uint8_t k, uint8_t ta, int rounds)
@@ -197,7 +197,7 @@ void TestWithManyErrors(uint8_t n, uint8_t k, uint8_t ta, int rounds)
 
     uint8_t buffer[255], orig[255], origErr[255];
 
-    uint8_t luts[SSE_LUT_SIZE];
+    uint8_t* luts = new uint8_t[SSE_LUT_SIZE];
     uint8_t coefsSSE[SSE_COEFS_SIZE];
     InitSSSE3(coefsSSE, (uint8_t)(n - k), luts);
 
@@ -249,6 +249,7 @@ void TestWithManyErrors(uint8_t n, uint8_t k, uint8_t ta, int rounds)
             erdet += er;
     }
     std::cout << "Total detected errors: " << erdet << '%' << '\n';
+    delete[] luts;
 }
 
 uint8_t lut[ALU_LUT_SIZE];
@@ -258,7 +259,7 @@ int main()
 {
     std::cout << "Hello World!\n";
     int ext = GetLatestSupportedExtension();
-    if (ext == 2)
+    if (ext == 3)
         std::cout << "AVX2 is supported\n";
     else if (ext == 1)
         std::cout << "Only SSSE3 is supported\n";
@@ -274,6 +275,7 @@ int main()
     //    }
     //}
     //return 0;
+
     results.open("C:\\Intel\\bench.txt", std::ios::out | std::ios::trunc);
     std::set<uint8_t> testN = {40, 48, 56, 64, 80, 96, 112, 128};
     for (auto tn : testN) 
@@ -281,15 +283,16 @@ int main()
         std::cout << "n = " << (int)tn << ", t = " << (((int)tn - 32) >> 1) << '\n';
         RunBenchmark(tn, 32, "C:\\Intel\\meatloaf.jpg");
     }
+
     //std::cout << "\nt = 32\n";
     //RunBenchmark(255, 191, "C:\\Intel\\meatloaf.jpg"); //t=32
     //std::cout << "\nt = 48\n";
     //RunBenchmark(255, 159, "C:\\Intel\\meatloaf.jpg"); //t=48
     return 0;
     
-    uint8_t n = 38, k = 32;
+    uint8_t n = 135, k = 129;
     //uint8_t buffer[15] = { 11, 12, 13, 14, 15, 16, 17, 0, 0, 0, 21, 0, 0, 0, 0 }; //15, 11
-    uint8_t buffer[38];
+    uint8_t buffer[135];
     memset(buffer, 0, n);
     buffer[0] = 127;
     //uint8_t buffer2[15] = { 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
@@ -301,7 +304,7 @@ int main()
 
     init_rs(n, k);
 
-    uint8_t orig[38];
+    uint8_t orig[135];
     EncodeSSSE3(n, k, luts, coefsSL, buffer);
     memcpy_s(orig, n, buffer, n);
     std::cout << "Original buffer: \n";
@@ -312,6 +315,11 @@ int main()
     memcpy_s(buffer, n, orig, n);
     std::cout << "Check remainder: " << (DecodeALU(n, k, lut, buffer) ? "fail" : "OK") << std::endl;
     int dec;
+    buffer[9] = 112;
+    std::cout << "Buffer with errors: \n";
+    for (int j = 0; j < n; j++)
+        std::cout << (int)buffer[j] << ' ';
+    DecodeALU(n, k, lut, buffer);
 
     memset(buffer, 0, n);
     buffer[0] = 127;
@@ -371,7 +379,7 @@ int main()
 
     memcpy_s(buffer, n, orig, n);
     EncodeSSSE3(n, k, luts, coefsSL, buffer);
-    std::cout << "Original buffer V: \n";
+    std::cout << "Original buffer SSE: \n";
     for (int j = 0; j < n; j++)
         std::cout << (int)buffer[j] << ' ';
     std::cout << std::endl;
@@ -379,7 +387,7 @@ int main()
     std::cout << "Check remainder: " << (DecodeSSSE3(n, k, luts, buffer) ? "fail" : "OK") << std::endl;
 
     //buffer[0] = 14;
-    buffer[9] = 105; //105
+    buffer[9] = 112; //105
     std::cout << "Buffer with errors V: \n";
     for (int j = 0; j < n; j++)
         std::cout << (int)buffer[j] << ' ';

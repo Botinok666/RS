@@ -298,23 +298,26 @@ namespace UnitTestRS
 
 		TEST_METHOD(TestAllOnesOrZerosSSSE3)
 		{
-			uint8_t luts[SSE_LUT_SIZE];
+			uint8_t* luts = new uint8_t[SSE_LUT_SIZE];
 			uint8_t coefs[SSE_COEFS_SIZE];
 			TestAllOnesOrZeros(coefs, luts, &InitSSSE3, &EncodeSSSE3, &DecodeSSSE3);
+			delete[] luts;
 		}
 
 		TEST_METHOD(TestSingleByteDataSSSE3)
 		{
-			uint8_t luts[SSE_LUT_SIZE];
+			uint8_t* luts = new uint8_t[SSE_LUT_SIZE];
 			uint8_t coefs[SSE_COEFS_SIZE];
 			TestSingleByteData(coefs, luts, &InitSSSE3, &EncodeSSSE3, &DecodeSSSE3);
+			delete[] luts;
 		}
 		
 		TEST_METHOD(TestRandomDataSSSE3)
 		{
-			uint8_t luts[SSE_LUT_SIZE];
+			uint8_t* luts = new uint8_t[SSE_LUT_SIZE];
 			uint8_t coefs[SSE_COEFS_SIZE];
 			TestRandomData(coefs, luts, &InitSSSE3, &EncodeSSSE3, &DecodeSSSE3);
+			delete[] luts;
 		}
 	};
 }

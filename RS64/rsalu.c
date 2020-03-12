@@ -1,4 +1,5 @@
 #include "rsalu.h"
+//#include <stdio.h>
 #define ERROR_CHECKING
 // Slow multiply, using shifting
 // Polynomial x^8 + x^4 + x^3 + x^2 + 1
@@ -101,6 +102,10 @@ int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
             syn[j] = lutLog[s];
         }
     }
+    //printf_s("\nSyndromes: ");
+    //for (int j = 0; j < scount; j++)
+    //    printf_s("%d ", lutExp[syn[j]]);
+    //printf_s("\n");
     if (!hasErrors) return 0;
 
     //Lambda calculation: Berlekamp's method
