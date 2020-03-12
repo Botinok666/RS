@@ -152,10 +152,15 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="rsalu.h" />
+    <ClInclude Include="rsavx2.h" />
+    <ClInclude Include="rsdef.h" />
     <ClInclude Include="rsssse3.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="rsalu.c" />
+    <ClCompile Include="rsavx2.c">
+      <EnableEnhancedInstructionSet Condition="'$(Configuration)|$(Platform)'=='Release|x64'">AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
+    </ClCompile>
     <ClCompile Include="rsssse3.c">
       <EnableEnhancedInstructionSet Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotSet</EnableEnhancedInstructionSet>
     </ClCompile>

@@ -1,12 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <string.h>
-
-#define ALU_LUT_EXP_OFFSET	256LL
-
-#define MAX_S_ALU 96LL
-#define ALU_LUT_SIZE 3584LL
-#define ALU_COEFS_SIZE (2 * (MAX_S_ALU + 1))
+#include "rsdef.h"
 #ifdef __cplusplus
 extern "C" {
 #endif 

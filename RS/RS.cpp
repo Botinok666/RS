@@ -9,17 +9,18 @@
 #include <set>
 #include "rs64.h"
 
-#include "rs-jp.h"
-#include <intrin.h>
+#include "rs_crc_import.h"
+
+std::ofstream results;
 
 //Wrappers for rs (jpwl) library
 int EncodeJPWL(uint8_t n, uint8_t k, uint8_t* coefs, uint8_t* lut, uint8_t* buffer)
 {
-    return encode_rs(buffer, buffer + k);
+    return encode_rs(buffer, buffer + k, n, k);
 }
 int DecodeJPWL(uint8_t n, uint8_t k, uint8_t* lut, uint8_t* buffer)
 {
-    return eras_dec_rs(buffer, nullptr, 0);
+    return dec_rs(buffer, buffer + k, n, k);
 }
 
 void PrintLUT(uint16_t* lut)
@@ -49,6 +50,8 @@ void PrintStats(_LARGE_INTEGER start, _LARGE_INTEGER end, _LARGE_INTEGER freq, s
     int msecs = elapsed.LowPart;
     std::cout << testType << " finished in " << msecs / 1000.0f << 's';
     std::cout << ", speed: " << ((size / 1024) * 1000) / msecs << " Kb/s\n";
+    if (results.is_open())
+        results << '\t' << msecs;
 }
 void BenchmarkTests(uint8_t n, uint8_t k, size_t size, uint8_t* memblock, uint8_t* outblock, uint8_t* coefs, uint8_t* lut,
     int (*EncodeData)(uint8_t, uint8_t, uint8_t*, uint8_t*, uint8_t*),
@@ -92,7 +95,8 @@ void BenchmarkTests(uint8_t n, uint8_t k, size_t size, uint8_t* memblock, uint8_
         {
             uint16_t randn = rgen();
             int idx = j * n + randn % n; //Random position within a block
-            outblock[idx] = randn >> 8; //Upper byte as a random value
+            randn >>= 8; //Upper byte as a random value
+            outblock[idx] ^= randn ? randn : 1;
         }
         errorSum += errors;
     }
@@ -139,6 +143,11 @@ void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
     uint8_t* origblock = new uint8_t[blkCount * n];
     memcpy_s(origblock, size, memblock, size); //Save original data
     std::cout << "File opened, size " << size << std::endl;
+    if (results.is_open())
+    {
+        results << "RS(" << (int)n << ", " << (int)k << "), file size " << (size >> 10) << "Kb\n";
+        results << "Coder\tEncode, ms\tClear decode, ms\tDecode, ms";
+    }
 
     uint8_t lut[ALU_LUT_SIZE];
     uint8_t coefs[ALU_COEFS_SIZE];
@@ -148,20 +157,27 @@ void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
     uint8_t coefsSSE[SSE_COEFS_SIZE];
     InitSSSE3(coefsSSE, (uint8_t)(n - k), luts);
 
-    std::cout << "\nTesting ALU\n";
-    std::cout << std::setprecision(4);
-    BenchmarkTests(n, k, size, memblock, outblock, coefs, lut, &EncodeALU, &DecodeALU);
-    int check = memcmp(memblock, origblock, size);
-    std::cout << "Data integrity check " << (check ? "failed\n" : "OK\n");
+    init_rs(n, k);
 
+    std::cout << std::setprecision(4);
+    if (results.is_open())
+        results << "\nJPWL";
     std::cout << "\nTesting JPWL\n";
-    init_rs(k);
     memcpy_s(memblock, size, origblock, size); //Restore original data
     memset(outblock, 0, size);
     BenchmarkTests(n, k, size, memblock, outblock, nullptr, nullptr, &EncodeJPWL, &DecodeJPWL);
+    int check = memcmp(memblock, origblock, size);
+    std::cout << "Data integrity check " << (check ? "failed\n" : "OK\n");
+
+    if (results.is_open())
+        results << "\nALU";
+    std::cout << "\nTesting ALU\n";
+    BenchmarkTests(n, k, size, memblock, outblock, coefs, lut, &EncodeALU, &DecodeALU);
     check = memcmp(memblock, origblock, size);
     std::cout << "Data integrity check " << (check ? "failed\n" : "OK\n");
 
+    if (results.is_open())
+        results << "\nSSSE3";
     std::cout << "\nTesting SSSE3\n";
     memcpy_s(memblock, size, origblock, size); //Restore original data
     memset(outblock, 0, size);
@@ -258,18 +274,22 @@ int main()
     //    }
     //}
     //return 0;
-
-    std::cout << "t = 16\n";
-    RunBenchmark(255, 223, "C:\\Intel\\meatloaf.jpg"); //t=16
-    std::cout << "\nt = 32\n";
-    RunBenchmark(255, 191, "C:\\Intel\\meatloaf.jpg"); //t=32
-    std::cout << "\nt = 48\n";
-    RunBenchmark(255, 159, "C:\\Intel\\meatloaf.jpg"); //t=48
+    results.open("C:\\Intel\\bench.txt", std::ios::out | std::ios::trunc);
+    std::set<uint8_t> testN = {40, 48, 56, 64, 80, 96, 112, 128};
+    for (auto tn : testN) 
+    {
+        std::cout << "n = " << (int)tn << ", t = " << (((int)tn - 32) >> 1) << '\n';
+        RunBenchmark(tn, 32, "C:\\Intel\\meatloaf.jpg");
+    }
+    //std::cout << "\nt = 32\n";
+    //RunBenchmark(255, 191, "C:\\Intel\\meatloaf.jpg"); //t=32
+    //std::cout << "\nt = 48\n";
+    //RunBenchmark(255, 159, "C:\\Intel\\meatloaf.jpg"); //t=48
     return 0;
     
-    uint8_t n = 255, k = 249;
+    uint8_t n = 38, k = 32;
     //uint8_t buffer[15] = { 11, 12, 13, 14, 15, 16, 17, 0, 0, 0, 21, 0, 0, 0, 0 }; //15, 11
-    uint8_t buffer[255];
+    uint8_t buffer[38];
     memset(buffer, 0, n);
     buffer[0] = 127;
     //uint8_t buffer2[15] = { 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
@@ -279,9 +299,9 @@ int main()
     uint8_t coefsSL[SSE_COEFS_SIZE];
     InitSSSE3(coefsSL, n - k, luts);
 
-    init_rs(k);
+    init_rs(n, k);
 
-    uint8_t orig[255];
+    uint8_t orig[38];
     EncodeSSSE3(n, k, luts, coefsSL, buffer);
     memcpy_s(orig, n, buffer, n);
     std::cout << "Original buffer: \n";
@@ -295,7 +315,8 @@ int main()
 
     memset(buffer, 0, n);
     buffer[0] = 127;
-    encode_rs(buffer, buffer + k);
+    encode_rs(buffer, buffer + k, n, k);
+    //EncodeALU(n, k, lut, coefs, buffer);
     std::cout << "rs-jp buffer: \n";
     for (int j = 0; j < n; j++)
         std::cout << (int)buffer[j] << ' ';
@@ -323,14 +344,14 @@ int main()
 
     buffer[9] = 105; //112 - S1=0, 167 - S2=0, 81 - S3=0
     buffer[17] = 112;
-    buffer[27] = 4;
-    buffer[250] = 81;
+    //buffer[27] = 4;
+    buffer[37] = 81;
     //std::cout << "Buffer with errors I: \n";
     //for (int j = 0; j < n; j++)
     //    std::cout << (int)buffer[j] << ' ';
     //std::cout << std::endl;
 
-    dec = eras_dec_rs(buffer, nullptr, 0);
+    dec = dec_rs(buffer, buffer + k, n, k);
     //dec = DecodeFL(n, k, lutf, buffer);
     std::cout << "Found errors I: " << dec << std::endl;
 
@@ -339,7 +360,7 @@ int main()
         std::cout << (int)buffer[j] << ' ';
     std::cout << std::endl;
 
-    dec = eras_dec_rs(buffer, nullptr, 0);
+    dec = dec_rs(buffer, buffer + k, n, k);
     //dec = DecodeFL(n, k, lutf, buffer);
     std::cout << "Found errors II: " << dec << std::endl;
 

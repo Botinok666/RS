@@ -87,10 +87,6 @@ static inline void GFMulSSE2(__m128i *va, __m128i *vb, __m128i *vz, __m128i *vs,
     vx = _mm_cmpgt_epi8(*vz, *va);
     vx = _mm_and_si128(vx, *vb);
     *vs = _mm_xor_si128(*vs, vx);
-    vx = _mm_cmpgt_epi8(*vz, *vb);
-    vx = _mm_and_si128(vx, *vgp);
-    *vb = _mm_add_epi8(*vb, *vb);
-    *vb = _mm_xor_si128(*vb, vx);
 }
 
 int GetLatestSupportedExtension()
@@ -173,7 +169,7 @@ void InitSSSE3(uint8_t* coefsu, const uint8_t count, uint8_t* lut)
 	uint8_t* coefs = coefsu + offset - 1; //coefs[0] will be placed outside of aligned array
 	__m128i vz = _mm_setzero_si128();
 	__m128i* cptr = (__m128i*)(coefsu + offset);
-	for (int i = 0; i < MAX_S_SSE / 16; i++) //Clear coefs
+	for (int i = 0; i < SSE_COEFS_SIZE / 16; i++) //Clear coefs
 		_mm_store_si128(cptr++, vz);
 	
     coefs[count] = 1;
@@ -252,8 +248,8 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
         return -3; //LUT still misaligned? Error must be thrown on upper level
 
     uint8_t* lutLog = lut, * lutExp = lut + SSE_LUT_EXP_OFFSET, * lutSSE = lut + SSE_LUT_SSE_OFFSET;
-    __declspec(align(16)) uint8_t lambda[MAX_S_SSE], omega[MAX_S_SSE], syn[MAX_S_SSE];
-	__declspec(align(16)) uint8_t b[MAX_S_SSE], Lm[MAX_S_SSE];
+    __declspec(align(16)) uint8_t lambda[2 * MAX_T], omega[2 * MAX_T], syn[2 * MAX_T];
+	__declspec(align(16)) uint8_t b[2 * MAX_T], Lm[2 * MAX_T];
 
     /*Syndrome calculation*/
     int hasNoErrors = 0xffff;
@@ -266,7 +262,7 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
     for (int j = 0; j <= steps; j++)
     {
         __m128i vroot = _mm_load_si128(lrev++);
-        __m128i vs = _mm_setzero_si128();
+        __m128i vs = vz;
         uint8_t* inm = buffer;
         for (int m = 0; m < n - 1; m++)
         {

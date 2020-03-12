@@ -1,0 +1,15 @@
+#pragma once
+#define MAX_T 48
+
+#define ALU_LUT_EXP_OFFSET	256LL
+#define ALU_LUT_SIZE 3584LL
+#define ALU_COEFS_SIZE (2 * (2 * MAX_T + 1))
+
+#define SSE_LUT_EXP_OFFSET 256LL
+#define SSE_LUT_SSE_OFFSET 768LL
+#define SSE_LUT_REV_OFFSET 8960LL
+#define SSE_LUT_SIZE 9248LL
+#define SSE_COEFS_SIZE (2 * MAX_T + 16)
+
+#define AVX_LUT_SIZE 9264LL
+#define AVX_COEFS_SIZE (2 * MAX_T + 32)

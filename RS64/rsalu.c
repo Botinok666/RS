@@ -80,7 +80,7 @@ int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
     uint16_t* lutExp = (uint16_t*)lut + ALU_LUT_EXP_OFFSET, * lutLog = (uint16_t*)lut;
 
     uint16_t hasErrors = 0;
-    uint16_t lambda[MAX_S_ALU], syn[MAX_S_ALU];
+    uint16_t lambda[2 * MAX_T], syn[2 * MAX_T];
     /*Syndrome calculation: Horner's method*/   
     {
         uint16_t stemp[255];
@@ -104,7 +104,7 @@ int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
     if (!hasErrors) return 0;
 
     //Lambda calculation: Berlekamp's method
-    uint16_t omega[MAX_S_ALU], b[MAX_S_ALU], Lm[MAX_S_ALU];
+    uint16_t omega[2 * MAX_T], b[2 * MAX_T], Lm[2 * MAX_T];
     //Set initial value of b and lambda to 1
     memset(b, 0, scount * sizeof(uint16_t));
     b[1] = 1;

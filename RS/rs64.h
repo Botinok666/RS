@@ -1,11 +1,10 @@
 #pragma once
 #include <stdint.h>
-#define MAX_S_ALU 96LL
+#define MAX_T 48
 #define ALU_LUT_SIZE 3584LL
-#define ALU_COEFS_SIZE (2 * (MAX_S_ALU + 1))
-#define MAX_S_SSE 96LL
+#define ALU_COEFS_SIZE (2 * (2 * MAX_T + 1))
 #define SSE_LUT_SIZE 9248LL
-#define SSE_COEFS_SIZE (MAX_S_SSE + 16)
+#define SSE_COEFS_SIZE (2 * MAX_T + 16)
 #ifdef __cplusplus
 extern "C" {
 #endif 

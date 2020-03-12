@@ -151,14 +151,13 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="rs-jp.c" />
     <ClCompile Include="RS.cpp" />
-    <ClCompile Include="rsaluflut.c" />
+    <ClCompile Include="rs_crc_lib.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="rs-jp.h" />
     <ClInclude Include="rs64.h" />
-    <ClInclude Include="rsaluflut.h" />
+    <ClInclude Include="rs_crc_decl.h" />
+    <ClInclude Include="rs_crc_import.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
