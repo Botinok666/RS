@@ -1,26 +1,8 @@
 #include <intrin.h>
 #include "rsssse3.h"
 //#include <stdio.h>
-#define ERROR_CHECKING
-// Slow multiply, using shifting
-// Polynomial x^8 + x^4 + x^3 + x^2 + 1
-uint8_t GFMul3(uint8_t a, uint8_t b)
-{
-    uint8_t r = 0, t;
-    while (a)
-    {
-        if (a & 1)
-            r ^= b;
-        t = b & 0x80;
-        b <<= 1;
-        if (t)
-            b ^= 0x1d;
-        a >>= 1;
-    }
-    return r;
-}
 
-int GetLatestSupportedExtension()
+int GetSupportedExtensions()
 //No: 0; SSSE3: 1; AVX2: 3
 {
     int info[4], nIds, result = 0;
@@ -44,10 +26,10 @@ int GetLatestSupportedExtension()
 void InitSSSE3(uint8_t* coefsu, const uint8_t count, uint8_t* lut)
 {
     if (count < 2) return;
-	uint64_t offset = (uint64_t)lut & 0xf;
-	if (offset) //Array is not aligned to 16 bytes boundary
+	uint64_t offset = (uint64_t)lut & 0x1f;
+	if (offset) //Array is not aligned to 32 bytes boundary
 	{
-		offset = 0x10 - offset;
+		offset = 0x20 - offset;
 		lut[0] = (uint8_t)offset; //Store offset
 		lut += offset; //Offset LUT pointer
 	}
@@ -55,7 +37,7 @@ void InitSSSE3(uint8_t* coefsu, const uint8_t count, uint8_t* lut)
     uint8_t x = 1, index = 0;
     lutExp[0] = x; //0:255 - log, 256:767 - exp, 768:8960 - sse
     for (int i = 0; i < 255; i++) {
-        uint8_t y = GFMul3(x, 2);
+        uint8_t y = GFMul(x, 2);
         lutExp[++index] = y;
         lutExp[index + 255] = y;
         x = y;
@@ -70,30 +52,30 @@ void InitSSSE3(uint8_t* coefsu, const uint8_t count, uint8_t* lut)
         uint8_t* usse = lutSSE + i * 32LL, *lsse = usse + 16;
         for (uint8_t j = 0; j < 16; j++)
         {
-            *usse++ = GFMul3(j << 4, (uint8_t)i);
-            *lsse++ = GFMul3(j, (uint8_t)i);
+            *usse++ = GFMul(j << 4, (uint8_t)i);
+            *lsse++ = GFMul(j, (uint8_t)i);
         }
     }
     
-    __declspec(align(16)) uint8_t rtemp[256], restmp[256];
+    uint8_t rtemp[256], restmp[256];
     memcpy_s(rtemp, 256, lutExp, 256); //Copy roots
     memset(restmp, 1, 256); //Set result initially to 1
     uint8_t* lutRoots = lut + SSE_LUT_ROOTS_OFFSET;
     for (int j = 0; j < 255; j++)
     {
         for (int i = 0; i < 256; i++)
-            restmp[i] = GFMul3(restmp[i], rtemp[i]);
+            restmp[i] = GFMul(restmp[i], rtemp[i]);
         memcpy_s(lutRoots, 256, restmp, 256);
         lutRoots += 256;
     }
-    memset(lutRoots, 0, 16); //Clear next 16 bytes so during unaligned load there will be no random data
+    memset(lutRoots, 0, 32); //Clear next 32 bytes so during unaligned load there will be no random data
 
     uint8_t* lutLog = lut;
-	//We need to align array at 16 bytes boundary
-	offset = 0x10 - ((uint64_t)coefsu & 0xf);
+	//We need to align array at 32 bytes boundary
+	offset = 0x20 - ((uint64_t)coefsu & 0x1f);
 	coefsu[0] = (uint8_t)offset; //Save offset
 	uint8_t* coefs = coefsu + offset - 1; //coefs[0] will be placed outside of aligned array
-    memset(coefs, 0, MAX_T * 2);
+    memset(coefs, 0, MAX_T * 2 + 1);
 	
     coefs[count] = 1;
     coefs[count - 1] = 1;
@@ -115,31 +97,29 @@ void InitSSSE3(uint8_t* coefsu, const uint8_t count, uint8_t* lut)
     }
 }
 
-static inline void GF_mvs_SSSE3(__m128i* vio, __m128i* vt, __m128i* vmask, __m128i* lmul, __m128i* umul)
+static inline void GF_mvs_SSSE3(__m128i* vtt, __m128i* vio, __m128i* vmask, __m128i* lmul, __m128i* umul)
 {
-    *vio = _mm_and_si128(*vt, *vmask); //Lower 4 bits
-    *vio = _mm_shuffle_epi8(*lmul, *vio); //Multiply lower 4 bits
-    *vt = _mm_srli_epi64(*vt, 4);
-    *vt = _mm_and_si128(*vt, *vmask); //Upper 4 bits
-    *vt = _mm_shuffle_epi8(*umul, *vt); //Multiply upper 4 bits
-    *vt = _mm_xor_si128(*vt, *vio); //Result of multiplication
+    *vtt = _mm_and_si128(*vio, *vmask); //Lower 4 bits
+    *vtt = _mm_shuffle_epi8(*lmul, *vtt); //Multiply lower 4 bits
+    *vio = _mm_srli_epi64(*vio, 4);
+    *vio = _mm_and_si128(*vio, *vmask); //Upper 4 bits
+    *vio = _mm_shuffle_epi8(*umul, *vio); //Multiply upper 4 bits
+    *vio = _mm_xor_si128(*vio, *vtt); //Result of multiplication
 }
 
 int EncodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* coefs, uint8_t* buffer)
 {
-    int length = n - k;
+    int length = (n - k - 1) >> 4;
 	if (lut[0] != 0xff) //LUT table requires alignment
 		lut += lut[0];
     if ((uint64_t)lut & 0xf)
-        return -3; //LUT still misaligned? Error must be thrown on upper level
+        return -1; //LUT still misaligned? Error must be thrown on upper level
 	coefs += coefs[0]; //Align coefficients table
     if ((uint64_t)coefs & 0xf)
-        return -4; //Coefficients still misaligned? Error must be thrown on upper level
+        return -1; //Coefficients still misaligned? Error must be thrown on upper level
 	
-    length = (length - 1) >> 4;
     uint8_t btemp[255 + 16];
-    uint8_t* lutExp = lut + SSE_LUT_EXP_OFFSET, * lutLog = lut, * lutSSE = lut + SSE_LUT_SSE_OFFSET;
-    uint8_t* oj = btemp;
+    uint8_t* lutSSE = lut + SSE_LUT_SSE_OFFSET, * oj = btemp;
     memcpy_s(btemp, k, buffer, k);
     memset(btemp + k, 0, n - k);
 
@@ -173,7 +153,7 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
 	if (lut[0] != 0xff) //LUT table requires alignment
 		lut += lut[0];
     if ((uint64_t)lut & 0xf)
-        return -3; //LUT still misaligned? Error must be thrown on upper level
+        return -1; //LUT still misaligned? Error must be thrown on upper level
 
     uint8_t* lutLog = lut, * lutExp = lut + SSE_LUT_EXP_OFFSET, * lutSSE = lut + SSE_LUT_SSE_OFFSET;
     __declspec(align(16)) uint8_t lambda[2 * MAX_T], omega[2 * MAX_T], syn[2 * MAX_T];
@@ -185,7 +165,7 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
 	_mm_store_si128((__m128i*)lambda, vz);
     memset(lambda, 0xff, scount & 0xf); //Temporal storage for root mask
     memset(syn, buffer[n - 1], MAX_T * 2);
-    __m128i* lroots = (__m128i*)(lut + SSE_LUT_ROOTS_OFFSET);
+    uint8_t* roots = lut + SSE_LUT_ROOTS_OFFSET;
     __m128i* ls = (__m128i*)syn;
     __m128i vmask = _mm_set1_epi8(0xf);
     for (int j = n - 2; j >= 0; j--)
@@ -195,7 +175,7 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
         __m128i umul = _mm_load_si128(lutv);
         __m128i lmul = _mm_load_si128(lutv + 1);
 
-        __m128i* lr = lroots;
+        __m128i* lr = (__m128i*)roots;
         for (int m = 0; m <= steps; m++)
         {
             __m128i vio = _mm_load_si128(lr++), vt;
@@ -206,7 +186,7 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
             _mm_store_si128(ls++, vt);
         }
         ls = (__m128i*)syn;
-        lroots += 16; //Hard to explain
+        roots += 256; //Hard to explain
     }
     //Check syndromes we've got
     ls = (__m128i*)syn;
@@ -338,16 +318,12 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
 
     /* Chien search
     We need to substitute x[] to lambda(x), where x[] = x^-n+1, x^-n+2, ..., 1 = x^256-n, x^256-n+1, ..., 1 */
-#ifdef ERROR_CHECKING
     steps = (n - 1) >> 4;
     uint8_t efound = 0, ecorr = 0;
-#else
-    steps = (k - 1) >> 4;
-#endif // ERROR_CHECKING
 
     __declspec(align(16)) uint8_t rtemp[256];
     memset(rtemp, 1, n);
-    uint8_t* roots = lut + SSE_LUT_ROOTS_OFFSET + 256 - n;
+    roots = lut + SSE_LUT_ROOTS_OFFSET + 256 - n;
     for (int j = 0; j < nerr; j++)
     {
         int idx = lambda[j + 1] * 32;
@@ -360,7 +336,7 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
         for (int m = 0; m <= steps; m++)
         {
             __m128i vio = _mm_loadu_si128(lr++), vt;
-            //Multiply: {roots}^(n - j) * buffer[j]
+            //Multiply: {roots}^(n - j) * lambda[j + 1]
             GF_mvs_SSSE3(&vt, &vio, &vmask, &lmul, &umul);
             vt = _mm_load_si128(ls);
             vt = _mm_xor_si128(vt, vio);
@@ -396,12 +372,10 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
         }
     }
     
-#ifdef ERROR_CHECKING
     if (efound != nerr)
         return -3;
     for (int j = 0; j < ecorr; j++)
         buffer[b[j]] ^= Lm[j];
-#endif // ERROR_CHECKING
 
     return nerr;
 }

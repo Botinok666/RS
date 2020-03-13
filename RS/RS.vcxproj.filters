@@ -21,6 +21,9 @@
     <ClCompile Include="rs_crc_lib.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="RS64.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="rs64.h">

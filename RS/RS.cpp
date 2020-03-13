@@ -120,7 +120,7 @@ void BenchmarkTests(uint8_t n, uint8_t k, size_t size, uint8_t* memblock, uint8_
 void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
 {
     uint8_t t = (n - k) >> 1;
-    if (t < 4 || n < 4) return;
+    if (t < 2 || n < 4) return;
 
     uint8_t* memblock = nullptr;
     long long blkCount;
@@ -149,9 +149,9 @@ void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
         results << "Coder\tEncode, ms\tClear decode, ms\tDecode, ms";
     }
 
-    uint8_t lut[ALU_LUT_SIZE];
-    uint8_t coefs[ALU_COEFS_SIZE];
-    InitALU(coefs, (uint8_t)(n - k), lut);
+    //uint8_t lut[ALU_LUT_SIZE];
+    //uint8_t coefs[ALU_COEFS_SIZE];
+    //InitALU(coefs, (uint8_t)(n - k), lut);
 
     uint8_t* luts = new uint8_t[SSE_LUT_SIZE];
     uint8_t coefsSSE[SSE_COEFS_SIZE];
@@ -169,12 +169,14 @@ void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
     int check = memcmp(memblock, origblock, size);
     std::cout << "Data integrity check " << (check ? "failed\n" : "OK\n");
 
-    if (results.is_open())
-        results << "\nALU";
-    std::cout << "\nTesting ALU\n";
-    BenchmarkTests(n, k, size, memblock, outblock, coefs, lut, &EncodeALU, &DecodeALU);
-    check = memcmp(memblock, origblock, size);
-    std::cout << "Data integrity check " << (check ? "failed\n" : "OK\n");
+    //if (results.is_open())
+    //    results << "\nALU";
+    //std::cout << "\nTesting ALU\n";
+    //BenchmarkTests(n, k, size, memblock, outblock, coefs, lut, &EncodeALU, &DecodeALU);
+    //memcpy_s(memblock, size, origblock, size); //Restore original data
+    //memset(outblock, 0, size);
+    //check = memcmp(memblock, origblock, size);
+    //std::cout << "Data integrity check " << (check ? "failed\n" : "OK\n");
 
     if (results.is_open())
         results << "\nSSSE3";
@@ -182,6 +184,15 @@ void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
     memcpy_s(memblock, size, origblock, size); //Restore original data
     memset(outblock, 0, size);
     BenchmarkTests(n, k, size, memblock, outblock, coefsSSE, luts, &EncodeSSSE3, &DecodeSSSE3);
+    check = memcmp(memblock, origblock, size);
+    std::cout << "Data integrity check " << (check ? "failed\n" : "OK\n");
+
+    if (results.is_open())
+        results << "\nAVX2";
+    std::cout << "\nTesting AVX2\n";
+    memcpy_s(memblock, size, origblock, size); //Restore original data
+    memset(outblock, 0, size);
+    BenchmarkTests(n, k, size, memblock, outblock, coefsSSE, luts, &EncodeAVX2, &DecodeAVX2);
     check = memcmp(memblock, origblock, size);
     std::cout << "Data integrity check " << (check ? "failed\n" : "OK\n");
 
@@ -258,7 +269,7 @@ uint8_t luts[SSE_LUT_SIZE];
 int main()
 {
     std::cout << "Hello World!\n";
-    int ext = GetLatestSupportedExtension();
+    int ext = GetSupportedExtensions();
     if (ext == 3)
         std::cout << "AVX2 is supported\n";
     else if (ext == 1)
@@ -277,7 +288,7 @@ int main()
     //return 0;
 
     results.open("C:\\Intel\\bench.txt", std::ios::out | std::ios::trunc);
-    std::set<uint8_t> testN = {40, 48, 56, 64, 80, 96, 112, 128};
+    std::set<uint8_t> testN = { 37, 43, 45, 51, 53, 75, 85, 96 };// {40, 48, 56, 64, 80, 96, 112, 128};
     for (auto tn : testN) 
     {
         std::cout << "n = " << (int)tn << ", t = " << (((int)tn - 32) >> 1) << '\n';
@@ -290,12 +301,12 @@ int main()
     //RunBenchmark(255, 159, "C:\\Intel\\meatloaf.jpg"); //t=48
     return 0;
     
-    uint8_t n = 135, k = 129;
-    //uint8_t buffer[15] = { 11, 12, 13, 14, 15, 16, 17, 0, 0, 0, 21, 0, 0, 0, 0 }; //15, 11
-    uint8_t buffer[135];
+    uint8_t n = 96, k = 64;
+    uint8_t buffer[96], orig[96];
     memset(buffer, 0, n);
     buffer[0] = 127;
-    //uint8_t buffer2[15] = { 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+
+
     uint8_t coefs[ALU_COEFS_SIZE];
     InitALU(coefs, n - k, lut);
 
@@ -304,8 +315,10 @@ int main()
 
     init_rs(n, k);
 
-    uint8_t orig[135];
-    EncodeSSSE3(n, k, luts, coefsSL, buffer);
+    InitRS(96, 64);
+    EncodeRS(buffer, NULL, 0, 0);
+
+    //EncodeSSSE3(n, k, luts, coefsSL, buffer);
     memcpy_s(orig, n, buffer, n);
     std::cout << "Original buffer: \n";
     for (int j = 0; j < n; j++)
@@ -313,7 +326,7 @@ int main()
     std::cout << std::endl;
 
     memcpy_s(buffer, n, orig, n);
-    std::cout << "Check remainder: " << (DecodeALU(n, k, lut, buffer) ? "fail" : "OK") << std::endl;
+    std::cout << "Check remainder: " << (DecodeRS(buffer, NULL, n, k) ? "fail" : "OK") << std::endl;
     int dec;
     buffer[9] = 112;
     std::cout << "Buffer with errors: \n";
@@ -325,7 +338,7 @@ int main()
     buffer[0] = 127;
     encode_rs(buffer, buffer + k, n, k);
     //EncodeALU(n, k, lut, coefs, buffer);
-    std::cout << "rs-jp buffer: \n";
+    std::cout << "\nrs-jp buffer: \n";
     for (int j = 0; j < n; j++)
         std::cout << (int)buffer[j] << ' ';
     std::cout << std::endl;
@@ -353,7 +366,7 @@ int main()
     buffer[9] = 105; //112 - S1=0, 167 - S2=0, 81 - S3=0
     buffer[17] = 112;
     //buffer[27] = 4;
-    buffer[37] = 81;
+    buffer[33] = 81;
     //std::cout << "Buffer with errors I: \n";
     //for (int j = 0; j < n; j++)
     //    std::cout << (int)buffer[j] << ' ';
@@ -378,13 +391,13 @@ int main()
     std::cout << std::endl;
 
     memcpy_s(buffer, n, orig, n);
-    EncodeSSSE3(n, k, luts, coefsSL, buffer);
+    EncodeAVX2(n, k, luts, coefsSL, buffer);
     std::cout << "Original buffer SSE: \n";
     for (int j = 0; j < n; j++)
         std::cout << (int)buffer[j] << ' ';
     std::cout << std::endl;
 
-    std::cout << "Check remainder: " << (DecodeSSSE3(n, k, luts, buffer) ? "fail" : "OK") << std::endl;
+    std::cout << "Check remainder: " << (DecodeAVX2(n, k, luts, buffer) ? "fail" : "OK") << std::endl;
 
     //buffer[0] = 14;
     buffer[9] = 112; //105

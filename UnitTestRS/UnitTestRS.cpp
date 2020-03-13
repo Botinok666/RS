@@ -1,10 +1,12 @@
 #include "pch.h"
 #include "CppUnitTest.h"
+#include "../RS64/rsdef.h"
+#include "../RS64/rs_common.c"
 #include "../RS64/rsalu.h"
 #include "../RS64/rsalu.c"
 #include <vector>
-//#include "../RS/rsaluflut.h"
-//#include "../RS/rsaluflut.c"
+#include "../RS64/rsavx2.h"
+#include "../RS64/rsavx2.c"
 #include "../RS64/rsssse3.h"
 #include "../RS64/rsssse3.c"
 #include <random>
@@ -75,7 +77,7 @@ namespace UnitTestRS
 	public:
 		
 		const std::vector<std::pair<uint8_t, uint8_t>> nk = 
-		{ {15, 11}, {15, 7}, {135, 129}, {135, 105}, {135, 67}, {255, 247}, {255, 187}, {255, 159} };
+		{ {15, 11}, {15, 7}, {85, 32}, {96, 32}, {135, 129}, {135, 105}, {135, 67}, {255, 247}, {255, 187}, {255, 159} };
 		const std::vector<uint8_t> sdval = { 1, 15, 88, 135, 255 };
 		const int repeats = 16;
 
@@ -317,6 +319,30 @@ namespace UnitTestRS
 			uint8_t* luts = new uint8_t[SSE_LUT_SIZE];
 			uint8_t coefs[SSE_COEFS_SIZE];
 			TestRandomData(coefs, luts, &InitSSSE3, &EncodeSSSE3, &DecodeSSSE3);
+			delete[] luts;
+		}
+
+		TEST_METHOD(TestAllOnesOrZerosAVX2)
+		{
+			uint8_t* luts = new uint8_t[SSE_LUT_SIZE];
+			uint8_t coefs[SSE_COEFS_SIZE];
+			TestAllOnesOrZeros(coefs, luts, &InitSSSE3, &EncodeAVX2, &DecodeAVX2);
+			delete[] luts;
+		}
+
+		TEST_METHOD(TestSingleByteDataAVX2)
+		{
+			uint8_t* luts = new uint8_t[SSE_LUT_SIZE];
+			uint8_t coefs[SSE_COEFS_SIZE];
+			TestSingleByteData(coefs, luts, &InitSSSE3, &EncodeAVX2, &DecodeAVX2);
+			delete[] luts;
+		}
+		
+		TEST_METHOD(TestRandomDataAVX2)
+		{
+			uint8_t* luts = new uint8_t[SSE_LUT_SIZE];
+			uint8_t coefs[SSE_COEFS_SIZE];
+			TestRandomData(coefs, luts, &InitSSSE3, &EncodeAVX2, &DecodeAVX2);
 			delete[] luts;
 		}
 	};

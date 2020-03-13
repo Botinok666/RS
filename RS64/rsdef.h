@@ -8,10 +8,14 @@
 #define SSE_LUT_EXP_OFFSET 256LL
 #define SSE_LUT_SSE_OFFSET 768LL
 #define SSE_LUT_ROOTS_OFFSET 8960LL
-#define SSE_LUT_SIZE (8960 + 256 * 255 + 16)
+#define SSE_LUT_SIZE (8960 + 256 * 255 + 64)
 #define SSE_LUT_REV_OFFSET 8960LL
-//#define SSE_LUT_SIZE 9248LL
-#define SSE_COEFS_SIZE (2 * MAX_T + 16)
+#define SSE_COEFS_SIZE (2 * MAX_T + 32)
 
-#define AVX_LUT_SIZE 9264LL
-#define AVX_COEFS_SIZE (2 * MAX_T + 32)
+#ifdef __cplusplus
+extern "C" {
+#endif 
+	uint8_t GFMul(uint8_t a, uint8_t b);
+#ifdef __cplusplus
+}
+#endif

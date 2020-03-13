@@ -1,23 +1,5 @@
 #include "rsalu.h"
 //#include <stdio.h>
-#define ERROR_CHECKING
-// Slow multiply, using shifting
-// Polynomial x^8 + x^4 + x^3 + x^2 + 1
-uint8_t GFMul(uint8_t a, uint8_t b)
-{
-    uint8_t r = 0, t;
-    while (a)
-    {
-        if (a & 1)
-            r ^= b;
-        t = b & 0x80;
-        b <<= 1;
-        if (t)
-            b ^= 0x1d;
-        a >>= 1;
-    }
-    return r;
-}
 
 void InitALU(uint8_t* Coefs, const uint8_t count, uint8_t* lut)
 {
@@ -192,12 +174,8 @@ int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
             xterm[j - 1] = (uint16_t)ecx;
         }
     }
-#ifdef ERROR_CHECKING
     int efound = 0, ecorr = 0;
     for (int j = 0; j < n; j++)
-#else
-    for (int j = 0; j < k; j++)
-#endif // ERROR_CHECKING
     {
         uint16_t p = 1;
         for (int m = 0; m < nerr; m++)
@@ -209,9 +187,7 @@ int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
         }
         if (!p)
         {
-#ifdef ERROR_CHECKING
             if (j < k) {
-#endif // ERROR_CHECKING
                 int xIdx = 256 - n + j;
                 uint16_t s = 0, y = lutExp[omega[0]];
                 for (int l = 1; l <= nerr; l++)
@@ -227,22 +203,16 @@ int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
 
                 s = 255 - lutLog[s];
                 s = lutExp[s + lutLog[y]];
-#ifdef ERROR_CHECKING
                 b[ecorr] = (uint8_t)j;
                 Lm[ecorr++] = s;
             }
             efound++;
-#else
-            buffer[j] ^= s;
-#endif // ERROR_CHECKING
         }
     }
-#ifdef ERROR_CHECKING
     if (efound != nerr)
         return -3;
     for (int j = 0; j < ecorr; j++)
         buffer[b[j]] ^= Lm[j];
-#endif // ERROR_CHECKING
 
     return nerr;
 }

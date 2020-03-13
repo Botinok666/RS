@@ -38,5 +38,8 @@
     <ClCompile Include="rsavx2.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="rs_common.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>
