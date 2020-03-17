@@ -158,7 +158,7 @@ void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
     InitSSSE3(coefsSSE, (uint8_t)(n - k), luts);
 
     init_rs(n, k);
-
+    int check;
     std::cout << std::setprecision(4);
     if (results.is_open())
         results << "\nJPWL";
@@ -166,7 +166,7 @@ void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
     memcpy_s(memblock, size, origblock, size); //Restore original data
     memset(outblock, 0, size);
     BenchmarkTests(n, k, size, memblock, outblock, nullptr, nullptr, &EncodeJPWL, &DecodeJPWL);
-    int check = memcmp(memblock, origblock, size);
+    check = memcmp(memblock, origblock, size);
     std::cout << "Data integrity check " << (check ? "failed\n" : "OK\n");
 
     //if (results.is_open())
@@ -287,18 +287,18 @@ int main()
     //}
     //return 0;
 
-    results.open("C:\\Intel\\bench.txt", std::ios::out | std::ios::trunc);
-    std::set<uint8_t> testN = { 37, 43, 45, 51, 53, 75, 85, 96 };// {40, 48, 56, 64, 80, 96, 112, 128};
-    for (auto tn : testN) 
-    {
-        std::cout << "n = " << (int)tn << ", t = " << (((int)tn - 32) >> 1) << '\n';
-        RunBenchmark(tn, 32, "C:\\Intel\\meatloaf.jpg");
-    }
+    //results.open("C:\\Intel\\bench.txt", std::ios::out | std::ios::trunc);
+    //std::set<uint8_t> testN = { 37, 43, 45, 51, 53, 75, 85, 96 }; //{ 85, 96 }; // {40, 48, 56, 64, 80, 96, 112, 128};
+    //for (auto tn : testN) 
+    //{
+    //    std::cout << "n = " << (int)tn << ", t = " << (((int)tn - 32) >> 1) << '\n';
+    //    RunBenchmark(tn, 32, "C:\\Intel\\meatloaf.jpg");
+    //}
 
-    //std::cout << "\nt = 32\n";
-    //RunBenchmark(255, 191, "C:\\Intel\\meatloaf.jpg"); //t=32
-    //std::cout << "\nt = 48\n";
-    //RunBenchmark(255, 159, "C:\\Intel\\meatloaf.jpg"); //t=48
+    std::cout << "\nt = 32\n";
+    RunBenchmark(255, 191, "C:\\Intel\\meatloaf.jpg"); //t=32
+    std::cout << "\nt = 48\n";
+    RunBenchmark(255, 159, "C:\\Intel\\meatloaf.jpg"); //t=48
     return 0;
     
     uint8_t n = 96, k = 64;
@@ -329,16 +329,15 @@ int main()
     std::cout << "Check remainder: " << (DecodeRS(buffer, NULL, n, k) ? "fail" : "OK") << std::endl;
     int dec;
     buffer[9] = 112;
+    buffer[17] = 85;
+    buffer[27] = 167;
+    buffer[37] = 81;
     std::cout << "Buffer with errors: \n";
     for (int j = 0; j < n; j++)
         std::cout << (int)buffer[j] << ' ';
-    DecodeALU(n, k, lut, buffer);
+    DecodeRS(buffer, NULL, 0, 0);
 
-    memset(buffer, 0, n);
-    buffer[0] = 127;
-    encode_rs(buffer, buffer + k, n, k);
-    //EncodeALU(n, k, lut, coefs, buffer);
-    std::cout << "\nrs-jp buffer: \n";
+    std::cout << "\nCorrected: \n";
     for (int j = 0; j < n; j++)
         std::cout << (int)buffer[j] << ' ';
     std::cout << std::endl;

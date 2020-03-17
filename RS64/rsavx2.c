@@ -62,16 +62,18 @@ int DecodeAVX2(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
     if ((uint64_t)lut & 0x1f)
         return -1; //LUT still misaligned? Error must be thrown on upper level
 
-    uint8_t* lutLog = lut, * lutExp = lut + SSE_LUT_EXP_OFFSET, * lutSSE = lut + SSE_LUT_SSE_OFFSET;
-    __declspec(align(32)) uint8_t lambda[2 * MAX_T], omega[2 * MAX_T], syn[2 * MAX_T];
+    uint16_t* lutExp = (uint16_t*)lut + ALU_LUT_EXP_OFFSET, * lutLog = (uint16_t*)lut;
+    uint8_t* lutSSE = lut + SSE_LUT_SSE_OFFSET; 
+    //uint8_t* lutLog = lut, * lutExp = lut + SSE_LUT_EXP_OFFSET, * lutSSE = lut + SSE_LUT_SSE_OFFSET;
+    __declspec(align(32)) uint8_t lambda[2 * MAX_T], syn[2 * MAX_T];
     __declspec(align(32)) uint8_t b[2 * MAX_T], Lm[2 * MAX_T];
 
     /*Syndrome calculation*/
-    int hasNoErrors = -1;
     _mm256_zeroall();
     __m256i vz = _mm256_setzero_si256();
-    _mm256_store_si256((__m256i*)lambda, vz);
-    memset(lambda, 0xff, scount & 0x1f); //Temporal storage for root mask
+    //int hasNoErrors = -1;
+    //_mm256_store_si256((__m256i*)lambda, vz);
+    //memset(lambda, 0xff, scount & 0x1f); //Temporal storage for root mask
     memset(syn, buffer[n - 1], MAX_T * 2);
     uint8_t* roots = lut + SSE_LUT_ROOTS_OFFSET;
     __m256i* ls = (__m256i*)syn;
@@ -98,15 +100,23 @@ int DecodeAVX2(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
         roots += 256; //Hard to explain
     }
     //Check syndromes we've got
-    ls = (__m256i*)syn;
-    for (int j = 0; j <= steps; j++)
+    uint16_t syn2[2 * MAX_T];
+    uint16_t hasErrors = 0;
+    for (int j = 0; j < scount; j++)
     {
-        __m256i vs = _mm256_load_si256(ls++);
-        if (j == steps && lambda[0]) //Non-zero lambda[0] means that scount % 0xf != 0
-            vs = _mm256_and_si256(vs, _mm256_load_si256((__m256i*)lambda));
-        hasNoErrors &= _mm256_movemask_epi8(_mm256_cmpeq_epi8(vs, vz));
+        hasErrors |= syn[j];
+        syn2[j] = lutLog[syn[j]];
     }
-    if (hasNoErrors == -1) return 0;
+    if (!hasErrors) return 0;
+    //ls = (__m256i*)syn;
+    //for (int j = 0; j <= steps; j++)
+    //{
+    //    __m256i vs = _mm256_load_si256(ls++);
+    //    if (j == steps && lambda[0]) //Non-zero lambda[0] means that scount % 0xf != 0
+    //        vs = _mm256_and_si256(vs, _mm256_load_si256((__m256i*)lambda));
+    //    hasNoErrors &= _mm256_movemask_epi8(_mm256_cmpeq_epi8(vs, vz));
+    //}
+    //if (hasNoErrors == -1) return 0;
 
     //Lambda calculation: Berlekamp's method
     //Set initial value of b and lambda to 1, and shift b left
@@ -122,20 +132,28 @@ int DecodeAVX2(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
     int l = 0;
     for (int r = 1; r <= scount; r++)
     {
-        uint8_t* si = syn + r - 1, * li = lambda;
-        uint8_t delta = *si;
+        //uint8_t* si = syn + r - 1, * li = lambda;
+        //uint8_t delta = *si;
+        //for (int m = 0; m < l; m++)
+        //{
+        //    li++;
+        //    si--;
+        //    if (*li && *si)
+        //    {
+        //        uint16_t idx = lutLog[*li];
+        //        idx += lutLog[*si];
+        //        delta ^= lutExp[idx];
+        //    }
+        //}
+        uint16_t* si = syn2 + r - 1;
+        uint8_t* li = lambda;
+        uint16_t delta = lutExp[*si--];
         for (int m = 0; m < l; m++)
         {
-            li++;
-            si--;
-            if (*li && *si)
-            {
-                uint16_t idx = lutLog[*li];
-                idx += lutLog[*si];
-                delta ^= lutExp[idx];
-            }
+            uint16_t lm = lutLog[*++li] + *si--;
+            delta ^= lutExp[lm];
         }
-        uint8_t sr = (r > 33) ? ((r - 2) >> 5) : 0; //Optimization for less copy operations
+        int sr = (r - 1) >> 5; //Optimization for less copy operations
         if (delta)
         {
             int ri = delta;
@@ -158,7 +176,7 @@ int DecodeAVX2(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
                 vtt = _mm256_xor_si256(vtt, vio);
                 _mm256_store_si256(lvec++, vtt); //Save result to lambda
             }
-            if (2 * l <= r - 1)
+            if (2 * l < r)
             {
                 l = r - l;
                 ri = 255 - lutLog[ri];
@@ -209,22 +227,31 @@ int DecodeAVX2(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
 
     /* Omega calculation */
     //Omega must be calculated only up to {nerr} power
+    //uint8_t omega[2 * MAX_T];
+    uint16_t omega[2 * MAX_T];
     for (int m = 0; m <= nerr; m++)
     {
-        uint8_t og = syn[m];
-        uint8_t* li = lambda, * si = syn + m;
-        for (int l = 0; l < m; l++)
+        uint16_t og = syn[m];
+        for (int l = 1; l <= m; l++)
         {
-            li++;
-            si--;
-            if (*li && *si)
-            {
-                uint16_t idx = lutLog[*li];
-                idx += lutLog[*si];
-                og ^= lutExp[idx];
-            }
+            uint16_t li = lutLog[lambda[l]] + syn2[m - l];
+            og ^= lutExp[li];
         }
-        omega[m] = og;
+        omega[m] = lutLog[og];
+        //uint8_t og = syn[m];
+        //uint8_t* li = lambda, * si = syn + m;
+        //for (int l = 0; l < m; l++)
+        //{
+        //    li++;
+        //    si--;
+        //    if (*li && *si)
+        //    {
+        //        uint16_t idx = lutLog[*li];
+        //        idx += lutLog[*si];
+        //        og ^= lutExp[idx];
+        //    }
+        //}
+        //omega[m] = og;
     }
 
     /* Chien search
@@ -263,15 +290,25 @@ int DecodeAVX2(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
         if (j < k)
         {
             int xIdx = 256 - n + j;
-            uint8_t s = 0, y = omega[0];
+            //uint8_t s = 0, y = omega[0];
+            //for (int l = 1; l <= nerr; l++)
+            //{
+            //    int ecx = xIdx * l;
+            //    ecx = (ecx >> 8) + (ecx & 0xff);
+            //    ecx = (ecx >> 8) + (ecx & 0xff);
+            //    if (omega[l])
+            //        y ^= lutExp[ecx + lutLog[omega[l]]]; //Omega(X^-1)
+            //    if ((l & 1) && lambda[l])
+            //        s ^= lutExp[ecx + lutLog[lambda[l]]]; //Lambda'(X^-1) * X^-1
+            //}
+            uint16_t s = 0, y = lutExp[omega[0]];
             for (int l = 1; l <= nerr; l++)
             {
                 int ecx = xIdx * l;
                 ecx = (ecx >> 8) + (ecx & 0xff);
                 ecx = (ecx >> 8) + (ecx & 0xff);
-                if (omega[l])
-                    y ^= lutExp[ecx + lutLog[omega[l]]]; //Omega(X^-1)
-                if ((l & 1) && lambda[l])
+                y ^= lutExp[ecx + omega[l]]; //Omega(X^-1)
+                if (l & 1)
                     s ^= lutExp[ecx + lutLog[lambda[l]]]; //Lambda'(X^-1) * X^-1
             }
             if (!s) return -4;
@@ -279,7 +316,7 @@ int DecodeAVX2(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
             s = 255 - lutLog[s];
             s = lutExp[s + lutLog[y]];
             b[ecorr] = (uint8_t)j;
-            Lm[ecorr++] = s;
+            Lm[ecorr++] = (uint8_t)s;
         }
     }
 

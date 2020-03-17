@@ -17,7 +17,7 @@ void InitALU(uint8_t* Coefs, const uint8_t count, uint8_t* lut)
     lutLog[0] = 511; //Log(0) = inf
     for (int i = 0; i < 255; i++)
         lutLog[lutExp[i]] = i;
-    memset(lutExp + 511, 0, 1025);
+    memset(lutExp + 511, 0, 2048);
     //Calculate coefficients
     coefs[count] = lutExp[0];
     coefs[count - 1] = 1;
@@ -119,7 +119,7 @@ int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
                 Lm[m] = *li;
                 *li++ ^= (uint8_t)lutExp[blg + dlg];
             }
-            if (2 * l <= r - 1)
+            if (2 * l < r)
             {
                 l = r - l;
                 dlg = 255 - dlg; //Inverse

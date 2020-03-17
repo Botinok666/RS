@@ -10,16 +10,25 @@ int InitRS(int n, int k)
 {
 	if (((n - k) >> 1) > MAX_T || 4 > n - k || n > 255 || k > 251)
 		return -1;
-	InitSSSE3(coefs, n - k, lut);
-	if (GetSupportedExtensions() == AVX2_SUPPORTED)
+	int ext = GetSupportedExtensions();
+	if (ext)
+		InitSSSE3(coefs, n - k, lut);
+	else
+		InitALU(coefs, n - k, lut);
+	if (ext == AVX2_SUPPORTED)
 	{
 		EncodeData = &EncodeAVX2;
 		DecodeData = &DecodeAVX2;
 	}
-	else
+	else if (ext == SSSE3_SUPPORTED)
 	{
 		EncodeData = &EncodeSSSE3;
 		DecodeData = &DecodeSSSE3;
+	}
+	else
+	{
+		EncodeData = &EncodeALU;
+		DecodeData = &DecodeALU;
 	}
 	N = (uint8_t)n, K = (uint8_t)k;
 	return 0;
