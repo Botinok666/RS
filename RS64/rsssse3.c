@@ -45,7 +45,8 @@ void InitSSSE3(uint8_t* coefsu, const uint8_t count, uint8_t* lut)
             *lsse++ = GFMul(j, (uint8_t)i);
         }
     }
-    uint16_t* lutExp = (uint16_t*)lut + ALU_LUT_EXP_OFFSET, * lutLog = (uint16_t*)lut;
+    uint16_t* lutLog = (uint16_t*)lut;
+    uint8_t* lutExp = lut + ALU_LUT_EXP_OFFSET;
     uint8_t x = 1, index = 0;
     lutExp[0] = x; //0:255 - log, 256:767 - exp, 768:1792 - zero
     for (int i = 0; i < 255; i++) {
@@ -57,7 +58,7 @@ void InitSSSE3(uint8_t* coefsu, const uint8_t count, uint8_t* lut)
     lutLog[0] = 511; //Log(0) = inf
     for (int i = 0; i < 255; i++)
         lutLog[lutExp[i]] = i;
-    memset(lutExp + 511, 0, 2048);
+    memset(lutExp + 511, 0, 1024);
     
     uint8_t restmp[256];
     memset(restmp, 1, 256); //Set result initially to 1
@@ -151,7 +152,8 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
     if ((uint64_t)lut & 0xf)
         return -1; //LUT still misaligned? Error must be thrown on upper level
 
-    uint16_t* lutExp = (uint16_t*)lut + ALU_LUT_EXP_OFFSET, * lutLog = (uint16_t*)lut;
+    uint16_t* lutLog = (uint16_t*)lut;
+    uint8_t* lutExp = lut + ALU_LUT_EXP_OFFSET;
     uint8_t* lutSSE = lut + SSE_LUT_SSE_OFFSET;
     __declspec(align(16)) uint8_t lambda[2 * MAX_T], syn[2 * MAX_T];
 	__declspec(align(16)) uint8_t b[2 * MAX_T], Lm[2 * MAX_T];
@@ -208,7 +210,7 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
     {
         uint16_t* si = syn2 + r - 1;
         uint8_t *li = lambda;
-        uint16_t delta = lutExp[*si--];
+        uint8_t delta = lutExp[*si--];
         for (int m = 0; m < l; m++)
         {
             uint16_t lm = lutLog[*++li] + *si--;
@@ -290,7 +292,7 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
     //Omega must be calculated only up to {nerr} power
     for (int m = 0; m <= nerr; m++)
     {
-        uint16_t og = syn[m];
+        uint8_t og = syn[m];
         for (int l = 1; l <= m; l++)
         {
             uint16_t li = lutLog[lambda[l]] + syn2[m - l];
@@ -335,7 +337,7 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
         if (j < k) 
         {
             int xIdx = 256 - n + j;
-            uint16_t s = 0, y = lutExp[omega[0]];
+            uint8_t s = 0, y = lutExp[omega[0]];
             for (int l = 1; l <= nerr; l++)
             {
                 int ecx = xIdx * l;
@@ -347,10 +349,10 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
             }
             if (!s) return -4;
 
-            s = 255 - lutLog[s];
+            s = 255 - (uint8_t)lutLog[s];
             s = lutExp[s + lutLog[y]];
             b[ecorr] = (uint8_t)j;
-            Lm[ecorr++] = (uint8_t)s;
+            Lm[ecorr++] = s;
         }
     }
     

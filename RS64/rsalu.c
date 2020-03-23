@@ -5,9 +5,11 @@ void InitALU(uint8_t* Coefs, const uint8_t count, uint8_t* lut)
 {
     if (count < 2) return;
 
-    uint16_t* lutExp = (uint16_t*)lut + ALU_LUT_EXP_OFFSET, * lutLog = (uint16_t*)lut, * coefs = (uint16_t*)Coefs;
+    uint16_t* lutLog = (uint16_t*)lut;
+    uint8_t* lutExp = lut + ALU_LUT_EXP_OFFSET;
+    uint16_t* coefs = (uint16_t*)Coefs;
     uint8_t x = 1, index = 0;
-    lutExp[0] = x; //0:255 - log, 256:767 - exp, 768:1792 - zero
+    lutExp[0] = x; //0:511 - exp, 512:1536 - zero
     for (int i = 0; i < 255; i++) {
         uint8_t y = GFMul(x, 2);
         lutExp[++index] = y;
@@ -17,7 +19,7 @@ void InitALU(uint8_t* Coefs, const uint8_t count, uint8_t* lut)
     lutLog[0] = 511; //Log(0) = inf
     for (int i = 0; i < 255; i++)
         lutLog[lutExp[i]] = i;
-    memset(lutExp + 511, 0, 2048);
+    memset(lutExp + 511, 0, 1024);
     //Calculate coefficients
     coefs[count] = lutExp[0];
     coefs[count - 1] = 1;
@@ -39,7 +41,8 @@ void InitALU(uint8_t* Coefs, const uint8_t count, uint8_t* lut)
 int EncodeALU(const uint8_t n, const uint8_t k, uint8_t* LUT, uint8_t* Coefs, uint8_t* buffer)
 {
     int length = n - k + 1;
-    uint16_t* lutExp = (uint16_t*)LUT + ALU_LUT_EXP_OFFSET, *lutLog = (uint16_t*)LUT;
+    uint16_t* lutLog = (uint16_t*)LUT;
+    uint8_t* lutExp = LUT + ALU_LUT_EXP_OFFSET;
     uint16_t* coefs = (uint16_t*)Coefs + 1;
     uint8_t btemp[255];
     memcpy_s(btemp, k, buffer, k);
@@ -60,9 +63,10 @@ int EncodeALU(const uint8_t n, const uint8_t k, uint8_t* LUT, uint8_t* Coefs, ui
 int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
 {
     int scount = n - k;
-    uint16_t* lutExp = (uint16_t*)lut + ALU_LUT_EXP_OFFSET, * lutLog = (uint16_t*)lut;
+    uint16_t* lutLog = (uint16_t*)lut;
+    uint8_t* lutExp = lut + ALU_LUT_EXP_OFFSET;
 
-    uint16_t hasErrors = 0;
+    uint8_t hasErrors = 0;
     uint16_t lambda[2 * MAX_T], syn[2 * MAX_T];
     /*Syndrome calculation: Horner's method*/   
     {
@@ -71,7 +75,7 @@ int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
             stemp[j] = lutLog[buffer[j]];
         for (int j = 0; j < scount; j++)
         {
-            uint16_t s = 0;
+            uint8_t s = 0;
             int v = n - 1;
             for (int m = 0; m <= v; m++)
             {
@@ -101,7 +105,7 @@ int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
     for (int r = 1; r <= scount; r++)
     {
         uint16_t* si = syn + r - 1, * li = lambda;
-        uint16_t delta = lutExp[*si--];
+        uint8_t delta = lutExp[*si--];
         for (int m = 0; m < l; m++)
         {
             uint16_t lm = lutLog[*++li];
@@ -117,7 +121,7 @@ int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
             {
                 blg = lutLog[b[m]];
                 Lm[m] = *li;
-                *li++ ^= (uint8_t)lutExp[blg + dlg];
+                *li++ ^= lutExp[blg + dlg];
             }
             if (2 * l < r)
             {
@@ -126,7 +130,7 @@ int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
                 for (int m = 0; m < c; m++)
                 {
                     blg = lutLog[Lm[m]];
-                    b[m] = (uint8_t)lutExp[blg + dlg];
+                    b[m] = lutExp[blg + dlg];
                 }
             }
         }
@@ -150,7 +154,7 @@ int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
     //Omega must be calculated only up to {nerr} power
     for (int m = 0; m <= nerr; m++)
     {
-        uint16_t og = lutExp[syn[m]];
+        uint8_t og = lutExp[syn[m]];
         for (int l = 1; l <= m; l++)
         {
             uint16_t li = lambda[l];
@@ -177,7 +181,7 @@ int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
     int efound = 0, ecorr = 0;
     for (int j = 0; j < n; j++)
     {
-        uint16_t p = 1;
+        uint8_t p = 1;
         for (int m = 0; m < nerr; m++)
         {
             int ecx = j * (m + 1);
@@ -189,7 +193,7 @@ int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
         {
             if (j < k) {
                 int xIdx = 256 - n + j;
-                uint16_t s = 0, y = lutExp[omega[0]];
+                uint8_t s = 0, y = lutExp[omega[0]];
                 for (int l = 1; l <= nerr; l++)
                 {
                     int ecx = xIdx * l;

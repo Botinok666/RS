@@ -4,9 +4,9 @@
 #define MAX_T 48
 #define AVX2_SUPPORTED 3
 #define SSSE3_SUPPORTED 1
-#define ALU_LUT_SIZE 3584LL
+#define ALU_LUT_SIZE 2048LL
 #define ALU_COEFS_SIZE (2 * (2 * MAX_T + 1))
-#define SSE_LUT_SIZE (11776 + 256 * 255 + 64)
+#define SSE_LUT_SIZE (10240 + 256 * 255 + 64)
 #define SSE_COEFS_SIZE (2 * MAX_T + 32)
 #ifdef __cplusplus
 extern "C" {
