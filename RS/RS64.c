@@ -8,19 +8,20 @@ static int (*DecodeData)(uint8_t, uint8_t, uint8_t*, uint8_t*);
 
 int InitRS(int n, int k)
 {
-	if (((n - k) >> 1) > MAX_T || 4 > n - k || n > 255 || k > 251)
+	int t = (n - k) >> 1;
+	if (t > MAX_T || 2 > t || n > 255 || k > 251)
 		return -1;
 	int ext = GetSupportedExtensions();
 	if (ext)
 		InitSSSE3(coefs, n - k, lut);
 	else
 		InitALU(coefs, n - k, lut);
-	if (ext == AVX2_SUPPORTED)
+	if (ext == AVX2_SUPPORTED && t >= 12)
 	{
 		EncodeData = &EncodeAVX2;
 		DecodeData = &DecodeAVX2;
 	}
-	else if (ext == SSSE3_SUPPORTED)
+	else if (ext & SSSE3_SUPPORTED)
 	{
 		EncodeData = &EncodeSSSE3;
 		DecodeData = &DecodeSSSE3;

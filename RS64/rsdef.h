@@ -17,3 +17,9 @@ extern "C" {
 #ifdef __cplusplus
 }
 #endif
+
+static void inline mod255(int* x)
+{
+	*x = (*x >> 8) + (*x & 0xff); //Close analog to (x %= 255), but faster
+	*x = (*x >> 8) + (*x & 0xff); //Result [255] is possible, that's acceptable here
+}

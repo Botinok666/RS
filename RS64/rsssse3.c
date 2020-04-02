@@ -1,6 +1,5 @@
 #include <intrin.h>
 #include "rsssse3.h"
-//#include <stdio.h>
 
 int GetSupportedExtensions()
 //No: 0; SSSE3: 1; AVX2: 3
@@ -94,7 +93,7 @@ void InitSSSE3(uint8_t* coefsu, const uint8_t count, uint8_t* lut)
     }
 }
 
-static inline void GF_mvs_SSSE3(__m128i* vtt, __m128i* vio, __m128i* vmask, __m128i* lmul, __m128i* umul)
+static void inline GF_mvs_SSSE3(__m128i* vtt, __m128i* vio, __m128i* vmask, __m128i* lmul, __m128i* umul)
 {
     *vtt = _mm_and_si128(*vio, *vmask); //Lower 4 bits
     *vtt = _mm_shuffle_epi8(*lmul, *vtt); //Multiply lower 4 bits
@@ -146,7 +145,7 @@ int EncodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* coefs, 
 }
 int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
 {
-    int scount = n - k, steps = (scount - 1) >> 4;
+    int scount = n - k, t = scount >> 1, steps = (scount - 1) >> 4;
 	if (lut[0] != 0xff) //LUT table requires alignment
 		lut += lut[0];
     if ((uint64_t)lut & 0xf)
@@ -217,7 +216,8 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
             delta ^= lutExp[lm];
         }
 
-        int sr = (r - 1) >> 4; //Optimization for less copy operations
+        int sx = r <= t ? r - 1 : t;
+        int sr = sx >> 4; //Optimization for less copy operations
         if (delta)
         {
 			int ri = delta;
@@ -231,7 +231,7 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
             for (int m = 0; m <= sr; m++)
             {
 				__m128i vx = _mm_load_si128(bvec++), vxl;
-				//Multiply vector b by scalar delta
+				//Multiply: {b} * delta
                 GF_mvs_SSSE3(&vxl, &vx, &vmask, &lmul, &umul);
 
 				vxl = _mm_load_si128(lvec);
@@ -253,7 +253,7 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
 				for (int m = 0; m <= sr; m++)
 				{
 					__m128i vx = _mm_load_si128(mvec++), vt;
-					//Multiply vector Lm by scalar delta^-1
+					//Multiply: {Lm} * delta^-1
                     GF_mvs_SSSE3(&vt, &vx, &vmask, &lmul, &umul);
 
 					_mm_store_si128(bvec++, vx); //Save result to b
@@ -261,13 +261,14 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
             }
         }
 		//Shift b left
-		bvec = (__m128i*)b + steps;
+        sr = (sx + 1) >> 4;
+		bvec = (__m128i*)b + sr;
 		__m128i vx = _mm_load_si128(bvec);
 		vx = _mm_slli_si128(vx, 1);
 		_mm_store_si128(bvec--, vx);
-		if (!steps) continue;
+		if (!sr) continue;
 		uint8_t* bi = (uint8_t*)bvec + 1;
-		for (int m = 0; m < steps; m++)
+		for (int m = 0; m < sr; m++)
 		{
 			vx = _mm_load_si128(bvec--);
 			_mm_storeu_si128((__m128i*)bi, vx);
@@ -276,7 +277,7 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
 		b[0] = 0;
     }
     int nerr = 0;
-    for (int m = scount - 1; m > 0; m--) //Find deg(lambda)
+    for (int m = t; m > 0; m--) //Find deg(lambda)
     {
         if (lambda[m])
 		{
@@ -284,8 +285,8 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
 			break;
 		}
     }
-    if (nerr > (scount >> 1))
-        return -2; //deg(lambda) > t? Uncorrectable error pattern occured
+    //if (nerr > (scount >> 1))
+    //    return -2; //deg(lambda) > t? Uncorrectable error pattern occured
 
     uint16_t omega[2 * MAX_T];
     /* Omega calculation */
@@ -341,8 +342,7 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
             for (int l = 1; l <= nerr; l++)
             {
                 int ecx = xIdx * l;
-                ecx = (ecx >> 8) + (ecx & 0xff);
-                ecx = (ecx >> 8) + (ecx & 0xff);
+                mod255(&ecx);
                 y ^= lutExp[ecx + omega[l]]; //Omega(X^-1)
                 if (l & 1)
                     s ^= lutExp[ecx + lutLog[lambda[l]]]; //Lambda'(X^-1) * X^-1

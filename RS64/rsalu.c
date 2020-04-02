@@ -1,5 +1,4 @@
 #include "rsalu.h"
-//#include <stdio.h>
 
 void InitALU(uint8_t* Coefs, const uint8_t count, uint8_t* lut)
 {
@@ -62,7 +61,7 @@ int EncodeALU(const uint8_t n, const uint8_t k, uint8_t* LUT, uint8_t* Coefs, ui
 }
 int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
 {
-    int scount = n - k;
+    int scount = n - k, t = scount >> 1;
     uint16_t* lutLog = (uint16_t*)lut;
     uint8_t* lutExp = lut + ALU_LUT_EXP_OFFSET;
 
@@ -80,18 +79,13 @@ int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
             for (int m = 0; m <= v; m++)
             {
                 int ecx = (v - m) * j;
-                ecx = (ecx >> 8) + (ecx & 0xff); //Close analog to (ecx %= 255), but faster
-                ecx = (ecx >> 8) + (ecx & 0xff); //Result [255] is possible, that's acceptable here
+                mod255(&ecx);
                 s ^= lutExp[stemp[m] + ecx];
             }
             hasErrors |= s;
             syn[j] = lutLog[s];
         }
     }
-    //printf_s("\nSyndromes: ");
-    //for (int j = 0; j < scount; j++)
-    //    printf_s("%d ", lutExp[syn[j]]);
-    //printf_s("\n");
     if (!hasErrors) return 0;
 
     //Lambda calculation: Berlekamp's method
@@ -111,13 +105,13 @@ int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
             uint16_t lm = lutLog[*++li];
             delta ^= lutExp[lm + *si--];
         }
-        int c = (r < scount) ? r + 1 : r;
+        int c = r < t ? r : t;
         if (delta)
         {
             li = lambda;
             uint16_t dlg = lutLog[delta], blg;
             Lm[0] = *li++;
-            for (int m = 1; m < c; m++)
+            for (int m = 1; m <= c; m++)
             {
                 blg = lutLog[b[m]];
                 Lm[m] = *li;
@@ -127,28 +121,28 @@ int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
             {
                 l = r - l;
                 dlg = 255 - dlg; //Inverse
-                for (int m = 0; m < c; m++)
+                for (int m = 0; m <= c; m++)
                 {
                     blg = lutLog[Lm[m]];
                     b[m] = lutExp[blg + dlg];
                 }
             }
         }
-        for (int m = c - 1; m > 0; m--) //Shift
+        for (int m = c; m > 0; m--) //Shift
             b[m] = b[m - 1];
         b[0] = 0;
     }
 
     int nerr = 0;
-    for (int m = 0; m < scount; m++) //Find deg(lambda)
+    for (int m = 0; m <= t; m++) //Find deg(lambda)
     {
         uint16_t lg = lambda[m];
         if (lg)
             nerr = m;
         lambda[m] = lutLog[lg]; //Convert to indexes
     }
-    if (nerr > (scount >> 1))
-        return -2; //deg(lambda) > t? Uncorrectable error pattern occured
+    //if (nerr > t)
+    //    return -2; //deg(lambda) > t? Uncorrectable error pattern occured
 
     /* Omega calculation */
     //Omega must be calculated only up to {nerr} power
@@ -173,8 +167,7 @@ int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
         else
         {
             int ecx = lambda[j] + j * x;
-            ecx = (ecx >> 8) + (ecx & 0xff);
-            ecx = (ecx >> 8) + (ecx & 0xff);
+            mod255(&ecx);
             xterm[j - 1] = (uint16_t)ecx;
         }
     }
@@ -185,8 +178,7 @@ int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
         for (int m = 0; m < nerr; m++)
         {
             int ecx = j * (m + 1);
-            ecx = (ecx >> 8) + (ecx & 0xff);
-            ecx = (ecx >> 8) + (ecx & 0xff);
+            mod255(&ecx);
             p ^= lutExp[xterm[m] + ecx];
         }
         if (!p)
@@ -197,8 +189,7 @@ int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
                 for (int l = 1; l <= nerr; l++)
                 {
                     int ecx = xIdx * l;
-                    ecx = (ecx >> 8) + (ecx & 0xff);
-                    ecx = (ecx >> 8) + (ecx & 0xff);
+                    mod255(&ecx);
                     y ^= lutExp[ecx + omega[l]]; //Omega(X^-1)
                     if (l & 1)
                         s ^= lutExp[ecx + lambda[l]]; //Lambda'(X^-1) * X^-1

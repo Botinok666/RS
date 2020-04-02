@@ -169,14 +169,14 @@ void RunBenchmark(uint8_t n, uint8_t k, const char* filename)
     //check = memcmp(memblock, origblock, size);
     //std::cout << "Data integrity check " << (check ? "failed\n" : "OK\n");
 
-    if (results.is_open())
-        results << "\nALU";
-    std::cout << "\nTesting ALU\n";
-    BenchmarkTests(n, k, size, memblock, outblock, coefs, lut, &EncodeALU, &DecodeALU);
-    memcpy_s(memblock, size, origblock, size); //Restore original data
-    memset(outblock, 0, size);
-    check = memcmp(memblock, origblock, size);
-    std::cout << "Data integrity check " << (check ? "failed\n" : "OK\n");
+    //if (results.is_open())
+    //    results << "\nALU";
+    //std::cout << "\nTesting ALU\n";
+    //BenchmarkTests(n, k, size, memblock, outblock, coefs, lut, &EncodeALU, &DecodeALU);
+    //memcpy_s(memblock, size, origblock, size); //Restore original data
+    //memset(outblock, 0, size);
+    //check = memcmp(memblock, origblock, size);
+    //std::cout << "Data integrity check " << (check ? "failed\n" : "OK\n");
 
     if (results.is_open())
         results << "\nSSSE3";
@@ -277,22 +277,23 @@ int main()
     else
         std::cout << "Shouldn't be here\n";
 
-    //for (int xt = 8; xt <= 32; xt += 8)
+    //for (int xt = 2; xt <= 8; xt += 2)
     //{
+    //    int n = 32;
     //    for (int xj = 1; xj <= xt / 2; xj *= 2)
     //    {
     //        std::cout << "\nt = " << xt << ", e = " << (xj + xt) << '\n';
-    //        TestWithManyErrors(255, 255 - (xt * 2), xj, 16);
+    //        TestWithManyErrors(n, n - (xt * 2), xj, 32);
     //    }
     //}
     //return 0;
 
     results.open("C:\\Intel\\bench.txt", std::ios::out | std::ios::trunc);
-    std::set<uint8_t> testN = { 48, 64, 96, 128 }; //{ 37, 43, 45, 51, 53, 75, 85, 96 }; // {40, 48, 56, 64, 80, 96, 112, 128};
+    std::set<uint8_t> testN = { 37, 43, 45, 51, 53, 75, 85, 96 };// { 48, 64, 96, 128 }; // {40, 48, 56, 64, 80, 96, 112, 128};
     for (auto tn : testN) 
     {
         std::cout << "n = " << (int)tn << ", t = " << (((int)tn - 32) >> 1) << '\n';
-        RunBenchmark(tn, 32, "C:\\Intel\\meatloaf.jpg"); //I:\\Other\\Old files\\pissingtv.com\\001_42afb313.wmv
+        RunBenchmark(tn, 32, "C:\\Intel\\meatloaf.jpg");
     }
 
     //std::cout << "\nt = 32\n";

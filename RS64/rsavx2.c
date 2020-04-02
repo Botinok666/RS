@@ -56,7 +56,7 @@ int EncodeAVX2(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* coefs, u
 
 int DecodeAVX2(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
 {
-    int scount = n - k, steps = (scount - 1) >> 5;
+    int scount = n - k, t = scount >> 1, steps = (scount - 1) >> 5;
     if (lut[0] != 0xff) //LUT table requires alignment
         lut += lut[0];
     if ((uint64_t)lut & 0x1f)
@@ -128,8 +128,10 @@ int DecodeAVX2(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
         {
             uint16_t lm = lutLog[*++li] + *si--;
             delta ^= lutExp[lm];
-        }
-        int sr = (r - 1) >> 5; //Optimization for less copy operations
+        }        
+        
+        int sx = r <= t ? r - 1 : t;
+        int sr = sx >> 5; //Optimization for less copy operations
         if (delta)
         {
             int ri = delta;
@@ -175,15 +177,16 @@ int DecodeAVX2(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
             }
         }
         //Shift b left
-        bvec = (__m256i*)b + steps;
+        sr = (sx + 1) >> 5;
+        bvec = (__m256i*)b + sr;
         __m256i vx = _mm256_load_si256(bvec);
         uint8_t tmp8 = ((uint8_t*)bvec)[15];
         vx = _mm256_slli_si256(vx, 1);
         _mm256_store_si256(bvec, vx);
         ((uint8_t*)bvec)[16] = tmp8;
-        if (!steps) continue;
+        if (!sr) continue;
         uint8_t* bi = (uint8_t*)--bvec + 1;
-        for (int m = 0; m < steps; m++)
+        for (int m = 0; m < sr; m++)
         {
             vx = _mm256_load_si256(bvec--);
             _mm256_storeu_si256((__m256i*)bi, vx);
@@ -192,7 +195,7 @@ int DecodeAVX2(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
         b[0] = 0;
     }
     int nerr = 0;
-    for (int m = scount - 1; m > 0; m--) //Find deg(lambda)
+    for (int m = t; m > 0; m--) //Find deg(lambda)
     {
         if (lambda[m])
         {
@@ -200,8 +203,8 @@ int DecodeAVX2(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
             break;
         }
     }
-    if (nerr > (scount >> 1))
-        return -2; //deg(lambda) > t? Uncorrectable error pattern occured
+    //if (nerr > (scount >> 1))
+    //    return -2; //deg(lambda) > t? Uncorrectable error pattern occured
 
     /* Omega calculation */
     //Omega must be calculated only up to {nerr} power
@@ -257,8 +260,7 @@ int DecodeAVX2(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
             for (int l = 1; l <= nerr; l++)
             {
                 int ecx = xIdx * l;
-                ecx = (ecx >> 8) + (ecx & 0xff);
-                ecx = (ecx >> 8) + (ecx & 0xff);
+                mod255(&ecx);
                 y ^= lutExp[ecx + omega[l]]; //Omega(X^-1)
                 if (l & 1)
                     s ^= lutExp[ecx + lutLog[lambda[l]]]; //Lambda'(X^-1) * X^-1
