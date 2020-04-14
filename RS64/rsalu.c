@@ -2,7 +2,7 @@
 
 void InitALU(uint8_t* Coefs, const uint8_t count, uint8_t* lut)
 {
-    if (count < 2) return;
+    if (count < 2 || count > MAX_T * 2) return;
 
     uint16_t* lutLog = (uint16_t*)lut;
     uint8_t* lutExp = lut + ALU_LUT_EXP_OFFSET;
@@ -194,7 +194,7 @@ int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
                     if (l & 1)
                         s ^= lutExp[ecx + lambda[l]]; //Lambda'(X^-1) * X^-1
                 }
-                if (!s) return -4;
+                if (!s) return -2;
 
                 s = 255 - lutLog[s];
                 s = lutExp[s + lutLog[y]];
@@ -205,7 +205,7 @@ int DecodeALU(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
         }
     }
     if (efound != nerr)
-        return -3;
+        return -2;
     for (int j = 0; j < ecorr; j++)
         buffer[b[j]] ^= Lm[j];
 

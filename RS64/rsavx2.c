@@ -20,7 +20,7 @@ int EncodeAVX2(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* coefs, u
         return -1; //LUT still misaligned? Error must be thrown on upper level
     coefs += coefs[0]; //Align coefficients table
     if ((uint64_t)coefs & 0x1f)
-        return -2; //Coefficients still misaligned? Error must be thrown on upper level
+        return -1; //Coefficients still misaligned? Error must be thrown on upper level
 
     uint8_t btemp[255 + 32];
     uint8_t* lutSSE = lut + SSE_LUT_SSE_OFFSET, * oj = btemp;
@@ -265,7 +265,7 @@ int DecodeAVX2(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
                 if (l & 1)
                     s ^= lutExp[ecx + lutLog[lambda[l]]]; //Lambda'(X^-1) * X^-1
             }
-            if (!s) return -4;
+            if (!s) return -2;
 
             s = 255 - (uint8_t)lutLog[s];
             s = lutExp[s + lutLog[y]];
@@ -275,7 +275,7 @@ int DecodeAVX2(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
     }
 
     if (efound != nerr)
-        return -3;
+        return -2;
     for (int j = 0; j < ecorr; j++)
         buffer[b[j]] ^= Lm[j];
 

@@ -24,7 +24,7 @@ int GetSupportedExtensions()
 
 void InitSSSE3(uint8_t* coefsu, const uint8_t count, uint8_t* lut)
 {
-    if (count < 2) return;
+    if (count < 2 || count > MAX_T * 2) return;
 	uint64_t offset = (uint64_t)lut & 0x1f;
 	if (offset) //Array is not aligned to 32 bytes boundary
 	{
@@ -347,7 +347,7 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
                 if (l & 1)
                     s ^= lutExp[ecx + lutLog[lambda[l]]]; //Lambda'(X^-1) * X^-1
             }
-            if (!s) return -4;
+            if (!s) return -2;
 
             s = 255 - (uint8_t)lutLog[s];
             s = lutExp[s + lutLog[y]];
@@ -357,7 +357,7 @@ int DecodeSSSE3(const uint8_t n, const uint8_t k, uint8_t* lut, uint8_t* buffer)
     }
     
     if (efound != nerr)
-        return -3;
+        return -2;
     for (int j = 0; j < ecorr; j++)
         buffer[b[j]] ^= Lm[j];
 
