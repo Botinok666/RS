@@ -132,33 +132,24 @@ namespace Demo
             int blockCount = 1 + fileSz / kTest, n = kTest + t * 2;
             byte[] tempFile = new byte[blockCount * n];
             byte[] origFile = new byte[testFile.Length];
-            RSCS[] rs = new RSCS[] { 
-                new RSCS((byte)n, (byte)kTest, RSCS.Coders.ALU),
-                null, 
-                null };
-            try
-            {
-                rs[1] = new RSCS((byte)n, (byte)kTest, RSCS.Coders.SSSE3);
-            }
-            catch (PlatformNotSupportedException)
-            {
-                rs[1] = null;
-            }
-            try
-            {
-                rs[2] = new RSCS((byte)n, (byte)kTest, RSCS.Coders.AVX2);
-            }
-            catch (PlatformNotSupportedException)
-            {
-                rs[2] = null;
-            }
+            List<RSCS> rs = new List<RSCS>();
+            Enum.GetValues(typeof(RSCS.Coders))
+                .OfType<RSCS.Coders>()
+                .ToList()
+                .ForEach(x => {
+                    try
+                    {
+                        rs.Add(new RSCS((byte)n, (byte)kTest, x));
+                    }
+                    catch (PlatformNotSupportedException)
+                    { }
+                });
 
             await Task.Run(() => {
                 WriteTextSafe(string.Format("\tТестирование RS({0}, {1}){2}", n, kTest, Environment.NewLine));
                 Stopwatch stopwatch = new Stopwatch();
                 foreach (var coder in rs)
                 {
-                    if (coder == null) continue;
                     Array.Clear(testFile, 0, testFile.Length);
                     stopwatch.Restart();
                     for (int j = 0; j < blockCount; j++)
@@ -304,33 +295,19 @@ namespace Demo
             chart.Legends.Add(legend);
             dataTable.Columns.Add("Name", typeof(string));
             dataTable.PrimaryKey = new DataColumn[] { dataTable.Columns["Name"] };
-            dataTable.Columns.Add("ALU", typeof(float));
-            dataTable.Columns.Add("SSSE3", typeof(float));
-            dataTable.Columns.Add("AVX2", typeof(float));
-            chart.Series.Add(new Series("ALU")
-            {
-                XValueMember = "Name",
-                XValueType = ChartValueType.String,
-                YValueMembers = "ALU",
-                YValueType = ChartValueType.Single,
-                ChartType = SeriesChartType.Column
-            });
-            chart.Series.Add(new Series("SSSE3")
-            {
-                XValueMember = "Name",
-                XValueType = ChartValueType.String,
-                YValueMembers = "SSSE3",
-                YValueType = ChartValueType.Single,
-                ChartType = SeriesChartType.Column
-            });
-            chart.Series.Add(new Series("AVX2")
-            {
-                XValueMember = "Name",
-                XValueType = ChartValueType.String,
-                YValueMembers = "AVX2",
-                YValueType = ChartValueType.Single,
-                ChartType = SeriesChartType.Column
-            });
+            Enum.GetNames(typeof(RSCS.Coders))
+                .ToList()
+                .ForEach(x => {
+                    dataTable.Columns.Add(x, typeof(float));
+                    chart.Series.Add(new Series(x)
+                    {
+                        XValueMember = "Name",
+                        XValueType = ChartValueType.String,
+                        YValueMembers = x,
+                        YValueType = ChartValueType.Single,
+                        ChartType = SeriesChartType.Column
+                    });
+                });
             chart.DataSource = dataTable;
         }
 

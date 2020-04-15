@@ -127,11 +127,23 @@ namespace Demo
 		}
 		public int EncodeBuffer(ref byte buffer)
 		{
-			return EncodeData(n, k, ref lut[0], ref coefs[0], ref buffer);
+			int result = EncodeData(n, k, ref lut[0], ref coefs[0], ref buffer);
+			if (result == -1)
+			{
+				InitTables(ref coefs[0], (byte)(n - k), ref lut[0]);
+				result = EncodeData(n, k, ref lut[0], ref coefs[0], ref buffer);
+			}
+			return result;
 		}
 		public int DecodeBuffer(ref byte buffer)
 		{
-			return DecodeData(n, k, ref lut[0], ref buffer);
+			int result = DecodeData(n, k, ref lut[0], ref buffer);
+			if (result == -1)
+			{
+				InitTables(ref coefs[0], (byte)(n - k), ref lut[0]);
+				result = DecodeData(n, k, ref lut[0], ref buffer);
+			}
+			return result;
 		}
 		public string Version { get; private set; }
 	}
