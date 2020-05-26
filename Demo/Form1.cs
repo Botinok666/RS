@@ -24,6 +24,8 @@ namespace Demo
         struct BenchData { public float time; public float speed; public string type; public string mode; }
         private readonly DataTable dataTable = new DataTable("Default");
         private byte[] testFile;
+        private string testFileName;
+        private long testFileLength;
         private int[] tTest;
         private int kTest;
         private CancellationTokenSource tokenSource;
@@ -41,6 +43,7 @@ namespace Demo
                 {
                     using (FileStream fstream = File.OpenRead(openFile.FileName))
                     {
+                        testFileLength = fstream.Length;
                         testFile = new byte[fstream.Length + 256];
                         await fstream.ReadAsync(testFile, 0, (int)fstream.Length);
                         label1.Text = string.Format("Размер файла: {0} Кб", fstream.Length >> 10);
@@ -50,6 +53,7 @@ namespace Demo
                     blockSzCB.Enabled = true;
                     blockSzCB.SelectedIndex = 0;
                     testBtn.Enabled = true;
+                    testFileName = openFile.FileName;
                 }
             }
             openFileBtn.Enabled = true;
@@ -266,7 +270,6 @@ namespace Demo
             }
             else
             {
-
                 textBox1.AppendText(text);
             }
         }
@@ -339,6 +342,119 @@ namespace Demo
                     );
             }
             chart.DataBind();
+        }
+
+        private void EncodeBtn_Click(object sender, EventArgs e)
+        {
+            if (testFile == null || testFile.Length < 1024)
+                return;
+            int fileSz = testFile.Length - 256;
+            int t = 32, k = int.Parse(blockSzCB.SelectedItem.ToString());
+            int blockCount = 1 + fileSz / k, n = k + t * 2;
+            byte[] tempFile = new byte[blockCount * n];
+            RSCS rs = new RSCS((byte)n, (byte)k);
+
+            for (int j = 0; j < blockCount; j++)
+            {
+                Buffer.BlockCopy(testFile, j * k, tempFile, j * n, k);
+                rs.EncodeBuffer(ref tempFile[j * n]);
+            }
+
+            using SaveFileDialog saveFile = new SaveFileDialog
+            {
+                FileName = Path.ChangeExtension(testFileName, "bin")
+            };
+            if (saveFile.ShowDialog() != DialogResult.OK)
+                return;
+            using (BinaryWriter writer = new BinaryWriter(File.Create(saveFile.FileName)))
+            {
+                writer.Write(n);
+                writer.Write(k);
+                writer.Write(Path.GetExtension(testFileName));
+                writer.Write(testFileLength);
+                writer.Write(tempFile);
+                writer.Flush();
+            }
+            WriteTextSafe("Файл " + Path.GetFileName(saveFile.FileName) + " сохранён" + Environment.NewLine);
+        }
+
+        private void CorruptBtn_Click(object sender, EventArgs e)
+        {
+            using OpenFileDialog openFile = new OpenFileDialog
+            {
+                Filter = "RS files (*.bin)|*.bin"
+            };
+            if (openFile.ShowDialog() != DialogResult.OK)
+                return;
+            if (!File.Exists(openFile.FileName))
+                return;
+            using BinaryReader reader = new BinaryReader(File.OpenRead(openFile.FileName));
+            int n = reader.ReadInt32();
+            int k = reader.ReadInt32();
+            string ext = reader.ReadString();
+            long length = reader.ReadInt64();
+            byte[] tempFile = reader.ReadBytes((int)(reader.BaseStream.Length - reader.BaseStream.Position));
+            //Introduce some errors
+            int t = (n - k) >> 1;
+            for (int j = 0; j < tempFile.Length / n; j++)
+            {
+                int errors = Randoms.Next(0, t + 1);
+                for (int m = 0; m < errors; m++)
+                {
+                    ushort randn = (ushort)Randoms.Next(ushort.MinValue, ushort.MaxValue);
+                    int idx = j * n + randn % n; //Random position within a block
+                    randn >>= 8; //Upper byte as a random value
+                    tempFile[idx] ^= (byte)(randn != 0 ? randn : 1);
+                }
+            }
+            string corruptName = Path.Combine(Path.GetDirectoryName(openFile.FileName), 
+                Path.GetFileNameWithoutExtension(openFile.FileName) + "-corrupt.bin");
+            using BinaryWriter writer = new BinaryWriter(File.Create(corruptName));
+            writer.Write(n);
+            writer.Write(k);
+            writer.Write(ext);
+            writer.Write(length);
+            writer.Write(tempFile);
+            writer.Flush();
+            WriteTextSafe("Файл " + Path.GetFileName(corruptName) + " сохранён" + Environment.NewLine);
+        }
+
+        private void DecodeBtn_Click(object sender, EventArgs e)
+        {
+            using OpenFileDialog openFile = new OpenFileDialog
+            {
+                Filter = "RS files (*.bin)|*.bin"
+            };
+            if (openFile.ShowDialog() != DialogResult.OK)
+                return;
+            if (!File.Exists(openFile.FileName))
+                return;
+            using BinaryReader reader = new BinaryReader(File.OpenRead(openFile.FileName));
+            int n = reader.ReadInt32();
+            int k = reader.ReadInt32();
+            string ext = reader.ReadString();
+            long length = reader.ReadInt64();
+            byte[] tempFile = reader.ReadBytes((int)(reader.BaseStream.Length - reader.BaseStream.Position));
+            byte[] origFile = new byte[length];
+
+            RSCS rs = new RSCS((byte)n, (byte)k);
+            int blocks = tempFile.Length / n;
+            int errors = 0;
+            for (int j = 0; j < blocks - 1; j++)
+            {
+                errors += rs.DecodeBuffer(ref tempFile[j * n]);
+                Buffer.BlockCopy(tempFile, j * n, origFile, j * k, k);
+            }
+            errors += rs.DecodeBuffer(ref tempFile[(blocks - 1) * n]);
+            Buffer.BlockCopy(tempFile, (blocks - 1) * n, origFile, (blocks - 1) * k, origFile.Length - (blocks - 1) * k);
+            WriteTextSafe("Исправлено " + errors.ToString() + " ошибок" + Environment.NewLine);
+
+            string restoredName = Path.Combine(Path.GetDirectoryName(openFile.FileName),
+                Path.GetFileNameWithoutExtension(openFile.FileName) + "-restored" + ext);
+            using BinaryWriter writer = new BinaryWriter(File.Create(restoredName));
+            writer.Write(origFile);
+            writer.Flush();
+            WriteTextSafe("Файл " + Path.GetFileName(restoredName) + " сохранён" + Environment.NewLine);
         }
     }
 }
