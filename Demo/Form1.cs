@@ -360,22 +360,22 @@ namespace Demo
                 rs.EncodeBuffer(ref tempFile[j * n]);
             }
 
-            using SaveFileDialog saveFile = new SaveFileDialog
+            using (SaveFileDialog saveFile = new SaveFileDialog())
             {
-                FileName = Path.ChangeExtension(testFileName, "bin")
-            };
-            if (saveFile.ShowDialog() != DialogResult.OK)
-                return;
-            using (BinaryWriter writer = new BinaryWriter(File.Create(saveFile.FileName)))
-            {
-                writer.Write(n);
-                writer.Write(k);
-                writer.Write(Path.GetExtension(testFileName));
-                writer.Write(testFileLength);
-                writer.Write(tempFile);
-                writer.Flush();
+                saveFile.FileName = Path.ChangeExtension(testFileName, "bin");
+                if (saveFile.ShowDialog() != DialogResult.OK)
+                    return;
+                using (BinaryWriter writer = new BinaryWriter(File.Create(saveFile.FileName)))
+                {
+                    writer.Write(n);
+                    writer.Write(k);
+                    writer.Write(Path.GetExtension(testFileName));
+                    writer.Write(testFileLength);
+                    writer.Write(tempFile);
+                    writer.Flush();
+                }
+                MessageBox.Show("Файл " + Path.GetFileName(saveFile.FileName) + " сохранён");
             }
-            WriteTextSafe("Файл " + Path.GetFileName(saveFile.FileName) + " сохранён" + Environment.NewLine);
         }
 
         private void CorruptBtn_Click(object sender, EventArgs e)
@@ -416,7 +416,7 @@ namespace Demo
             writer.Write(length);
             writer.Write(tempFile);
             writer.Flush();
-            WriteTextSafe("Файл " + Path.GetFileName(corruptName) + " сохранён" + Environment.NewLine);
+            MessageBox.Show("Файл " + Path.GetFileName(corruptName) + " сохранён");
         }
 
         private void DecodeBtn_Click(object sender, EventArgs e)
@@ -447,14 +447,14 @@ namespace Demo
             }
             errors += rs.DecodeBuffer(ref tempFile[(blocks - 1) * n]);
             Buffer.BlockCopy(tempFile, (blocks - 1) * n, origFile, (blocks - 1) * k, origFile.Length - (blocks - 1) * k);
-            WriteTextSafe("Исправлено " + errors.ToString() + " ошибок" + Environment.NewLine);
+            string info = "Исправлено " + errors.ToString() + " ошибок" + Environment.NewLine;
 
             string restoredName = Path.Combine(Path.GetDirectoryName(openFile.FileName),
                 Path.GetFileNameWithoutExtension(openFile.FileName) + "-restored" + ext);
             using BinaryWriter writer = new BinaryWriter(File.Create(restoredName));
             writer.Write(origFile);
             writer.Flush();
-            WriteTextSafe("Файл " + Path.GetFileName(restoredName) + " сохранён" + Environment.NewLine);
+            MessageBox.Show(info + "Файл " + Path.GetFileName(restoredName) + " сохранён");
         }
     }
 }
